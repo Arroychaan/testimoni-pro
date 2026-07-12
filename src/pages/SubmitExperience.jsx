@@ -161,14 +161,9 @@ export default function SubmitExperience() {
     });
 
     if (submitError) {
-      setError('Gagal mengirim ulasan. Silakan coba lagi.');
+      setError(submitError);
       setSubmitting(false);
       return;
-    }
-
-    // ✅ FIX 2E: hanguskan token SETELAH submit sukses
-    if (activeToken && tokenValid === true) {
-      await consumeToken(activeToken);
     }
 
     // Store pending loyalty points

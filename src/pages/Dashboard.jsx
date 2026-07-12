@@ -30,6 +30,8 @@ export default function Dashboard() {
   const [copiedToken, setCopiedToken] = useState(null);
   const [tokenPage, setTokenPage] = useState(1);
   const [testiPage, setTestiPage] = useState(1);
+  const [newlyCreatedApiKey, setNewlyCreatedApiKey] = useState(null);
+  const [copiedApiKey, setCopiedApiKey] = useState(false);
 
   const TOKENS_PER_PAGE = 5;
   const TESTI_PER_PAGE = 5;
@@ -109,11 +111,23 @@ export default function Dashboard() {
 
   const handleGenerateApiKey = async () => {
     if (!business) return;
-    const { data, rawKey } = await generateApiKey(business.id);
+    const { data, rawKey, error } = await generateApiKey(business.id);
+    if (error) {
+      alert(`Gagal membuat API Key: ${error}`);
+      return;
+    }
     if (data) {
       setApiKeys((prev) => [data, ...prev]);
-      alert(`API Key berhasil dibuat!\n\nSimpan kunci ini karena tidak akan ditampilkan lagi:\n\n${rawKey}`);
+      setNewlyCreatedApiKey(rawKey);
+      setCopiedApiKey(false);
     }
+  };
+
+  const copyApiKey = () => {
+    if (!newlyCreatedApiKey) return;
+    navigator.clipboard.writeText(newlyCreatedApiKey);
+    setCopiedApiKey(true);
+    setTimeout(() => setCopiedApiKey(false), 2000);
   };
 
   const stats = {
@@ -242,6 +256,39 @@ export default function Dashboard() {
             >
               <Copy size={14} /> Salin Link
             </button>
+          </div>
+        )}
+
+        {/* ====== FLASH BANNER (API Key Baru) ====== */}
+        {newlyCreatedApiKey && (
+          <div className="flash-banner" style={{ borderLeft: '4px solid #fbbf24', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', padding: '1rem', backgroundColor: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)', borderRadius: '0.75rem', marginBottom: '1.5rem', animation: 'scaleIn 0.2s ease-out' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-primary)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                <CheckCircle size={18} weight="fill" style={{ color: '#fbbf24' }} /> API Key Baru Berhasil Dibuat
+              </div>
+              <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', marginBottom: '0.5rem', lineHeight: 1.4 }}>
+                Simpan API Key ini sekarang. Demi keamanan Anda, kunci ini tidak akan ditampilkan lagi setelah banner ini ditutup.
+              </p>
+              <code style={{ fontSize: '0.875rem', fontWeight: 700, wordBreak: 'break-all', backgroundColor: 'var(--color-bg-secondary)', padding: '0.375rem 0.625rem', borderRadius: '6px', border: '1px solid var(--color-border)', display: 'block', fontFamily: 'monospace' }}>
+                {newlyCreatedApiKey}
+              </code>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flexShrink: 0 }}>
+              <button
+                onClick={copyApiKey}
+                className="dash-action-btn primary"
+                style={{ fontSize: '0.75rem', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+              >
+                {copiedApiKey ? <><Check size={14} /> Tersalin</> : <><Copy size={14} /> Salin Key</>}
+              </button>
+              <button
+                onClick={() => setNewlyCreatedApiKey(null)}
+                className="dash-action-btn"
+                style={{ fontSize: '0.75rem', padding: '0.5rem 1rem', border: '1px solid var(--color-border)', backgroundColor: 'transparent', color: 'var(--color-text-secondary)', borderRadius: '0.5rem', cursor: 'pointer' }}
+              >
+                Tutup
+              </button>
+            </div>
           </div>
         )}
 

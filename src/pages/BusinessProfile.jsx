@@ -34,32 +34,19 @@ export default function BusinessProfile() {
     loadData();
   }, [slug]);
 
-  // ✅ FIX K2: Trust Grade berbasis rating + jumlah (bukan hanya jumlah)
-  function calculateTrustGrade() {
-    if (!testimonials || testimonials.length === 0) return { score: 0, label: 'Belum ada data' };
-
-    const total = testimonials.length;
-    const sumRating = testimonials.reduce((s, t) => s + (t.rating || 0), 0);
-    const avgRating = sumRating / total;
-
-    // Formula: base 30 + (avg * 12) + (count bonus capped)
-    // Rating 1-5 → 12-60 pts dari rating + hingga 10 pts dari jumlah (capped di 50 testimoni)
-    const ratingScore = avgRating * 12;                                // max 60
-    const volumeScore = Math.min(total, 50) * 0.2;                     // max 10
-    const verifiedBonus = testimonials.filter((t) => t.verified_token).length * 0.5; // max 25 jika 50 verified
-    const cappedBonus = Math.min(verifiedBonus, 25);
-
-    const rawScore = Math.round(30 + ratingScore + volumeScore + cappedBonus);
-    const score = Math.min(100, Math.max(0, rawScore));
-
-    if (score >= 90) return { score, label: 'Sangat Terpercaya', color: '#16a34a' };
-    if (score >= 75) return { score, label: 'Terpercaya', color: '#22c55e' };
-    if (score >= 60) return { score, label: 'Cukup Baik', color: '#eab308' };
-    if (score >= 40) return { score, label: 'Perlu Peningkatan', color: '#f97316' };
-    return { score, label: 'Belum Terverifikasi', color: '#ef4444' };
+  function getTrustColor(score) {
+    if (score >= 90) return '#16a34a';
+    if (score >= 75) return '#22c55e';
+    if (score >= 60) return '#eab308';
+    if (score >= 40) return '#f97316';
+    return '#ef4444';
   }
 
-  const trustGrade = calculateTrustGrade();
+  const trustGrade = {
+    score: business.trust_score || 0,
+    label: business.trust_label || 'Belum ada data',
+    color: getTrustColor(business.trust_score || 0)
+  };
 
   // ✅ FIX K1: Cek apakah testimoni memiliki verified_token
   function isVerified(testi) {

@@ -18,6 +18,7 @@ import Login from './pages/Login';
 import CookieBanner from './components/ui/CookieBanner';
 import { AuthProvider } from './lib/AuthContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import ProtectedRoute from './components/ProtectedRoute';
 import './styles/index.css';
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -30,12 +31,24 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/daftar" element={<RegisterAccount />} />
-          <Route path="/onboarding" element={<RegisterBusiness />} />
+          <Route path="/onboarding" element={
+            <ProtectedRoute>
+              <RegisterBusiness />
+            </ProtectedRoute>
+          } />
           <Route path="/login" element={<Login />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } />
           <Route path="/brand/:slug" element={<BusinessProfile />} />
           <Route path="/experience/:slug" element={<SubmitExperience />} />
-          <Route path="/settings" element={<EditProfile />} />
+          <Route path="/settings" element={
+            <ProtectedRoute>
+              <EditProfile />
+            </ProtectedRoute>
+          } />
           <Route path="/trust-grade" element={<TrustGradePage />} />
           <Route path="/cara-kerja" element={<HowItWorks />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />

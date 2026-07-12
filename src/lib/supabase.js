@@ -4,9 +4,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || supabaseUrl === 'your_supabase_url_here') {
-  console.warn(
-    '⚠️ Supabase belum dikonfigurasi. Menggunakan penyimpanan lokal (localStorage) untuk simulasi real-time.'
-  );
+  console.warn('⚠️ Supabase URL/Anon Key belum dikonfigurasi.');
 }
 
 export const supabase =
@@ -14,57 +12,16 @@ export const supabase =
     ? createClient(supabaseUrl, supabaseAnonKey)
     : null;
 
-// Initialize localStorage arrays if they don't exist
-if (!localStorage.getItem('tp_businesses')) {
-  localStorage.setItem('tp_businesses', JSON.stringify([]));
-}
-if (!localStorage.getItem('tp_testimonials')) {
-  localStorage.setItem('tp_testimonials', JSON.stringify([]));
-}
-if (!localStorage.getItem('tp_leads')) {
-  localStorage.setItem('tp_leads', JSON.stringify([]));
-}
-if (!localStorage.getItem('tp_tokens')) {
-  localStorage.setItem('tp_tokens', JSON.stringify([]));
-}
-
 /* ---- Helper Functions ---- */
 
-// ✅ K7: sanitize input dasar (trim + escape dasar)
 function sanitize(str) {
   if (!str || typeof str !== 'string') return '';
   return str.trim();
 }
 
-// ✅ K5: simple hash untuk API key (tidak menyimpan plain text)
-async function hashApiKey(key) {
-  // Gunakan SubtleCrypto jika tersedia, fallback ke btoa sederhana
-  if (window.crypto && window.crypto.subtle) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(key);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    return hashHex;
-  }
-  // Fallback: encode sederhana
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    const char = key.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash |= 0;
-  }
-  return 'hash_' + Math.abs(hash).toString(16);
-}
-
 // Fetch business by slug
 export async function getBusinessBySlug(slug) {
-  if (!supabase) {
-    const businesses = JSON.parse(localStorage.getItem('tp_businesses') || '[]');
-    const biz = businesses.find((b) => b.slug === slug);
-    if (!biz) return { data: null, error: 'Bisnis tidak ditemukan' };
-    return { data: biz, error: null };
-  }
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
   
   const { data, error } = await supabase
     .from('businesses')
@@ -76,12 +33,7 @@ export async function getBusinessBySlug(slug) {
 
 // Fetch business by ID
 export async function getBusinessById(id) {
-  if (!supabase) {
-    const businesses = JSON.parse(localStorage.getItem('tp_businesses') || '[]');
-    const biz = businesses.find((b) => b.id === id);
-    if (!biz) return { data: null, error: 'Bisnis tidak ditemukan' };
-    return { data: biz, error: null };
-  }
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
   
   const { data, error } = await supabase
     .from('businesses')
@@ -93,7 +45,7 @@ export async function getBusinessById(id) {
 
 // Fetch business by User ID (Auth)
 export async function getBusinessByUserId(userId) {
-  if (!supabase) return { data: null, error: 'Simulasi' };
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
   
   const { data, error } = await supabase
     .from('businesses')
@@ -105,20 +57,7 @@ export async function getBusinessByUserId(userId) {
 
 // Fetch testimonials for a business
 export async function getTestimonials(businessId, { ratingFilter } = {}) {
-  if (!supabase) {
-    let testimonials = JSON.parse(localStorage.getItem('tp_testimonials') || '[]');
-    let filtered = testimonials.filter(
-      (t) => t.business_id === businessId && t.is_published !== false
-    );
-    
-    if (ratingFilter && ratingFilter > 0) {
-      filtered = filtered.filter((t) => t.rating === ratingFilter);
-    }
-    
-    // Sort by created_at descending
-    filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return { data: filtered, error: null };
-  }
+  if (!supabase) return { data: [], error: 'Database tidak aktif' };
 
   let query = supabase
     .from('testimonials')
@@ -135,46 +74,29 @@ export async function getTestimonials(businessId, { ratingFilter } = {}) {
   return { data: data || [], error };
 }
 
-// Submit a new testimonial
-// ✅ FIX 1B: payload hanya berisi kolom yang ada di schema
+// Submit a new testimonial (Atomic via Server-side RPC)
 export async function submitTestimonial(testimonial) {
-  // Sanitize inputs
-  const clean = {
-    business_id: testimonial.business_id,
-    customer_name: sanitize(testimonial.customer_name),
-    is_anonymous: Boolean(testimonial.is_anonymous),
-    rating: Number(testimonial.rating) || 5,
-    review_text: sanitize(testimonial.review_text || testimonial.content || ''),
-    photo_urls: testimonial.photo_urls || null,
-    video_url: testimonial.video_url || null,
-    verified_token: testimonial.verified_token || null,
-    is_published: true,
-  };
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
 
-  if (!supabase) {
-    const testimonials = JSON.parse(localStorage.getItem('tp_testimonials') || '[]');
-    const newTestimonial = {
-      id: Math.random().toString(36).substr(2, 9),
-      created_at: new Date().toISOString(),
-      ...clean,
-    };
-    testimonials.push(newTestimonial);
-    localStorage.setItem('tp_testimonials', JSON.stringify(testimonials));
-    return { data: newTestimonial, error: null };
-  }
+  const { data, error } = await supabase.rpc('submit_testimonial_secure', {
+    p_business_id: testimonial.business_id,
+    p_customer_name: sanitize(testimonial.customer_name),
+    p_is_anonymous: Boolean(testimonial.is_anonymous),
+    p_rating: Number(testimonial.rating) || 5,
+    p_review_text: sanitize(testimonial.review_text || testimonial.content || ''),
+    p_photo_urls: testimonial.photo_urls || null,
+    p_video_url: testimonial.video_url || null,
+    p_verified_token: testimonial.verified_token || null
+  });
 
-  const { data, error } = await supabase
-    .from('testimonials')
-    .insert([clean])
-    .select()
-    .single();
-  return { data, error };
+  if (error) return { data: null, error: error.message };
+  return { data: { id: data }, error: null };
 }
 
 // Update business profile
-// ✅ FIX 1A: sekarang location, website, description sudah ada di schema
 export async function updateBusiness(businessId, updates) {
-  // Sanitize string fields
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
+
   const clean = { ...updates };
   if (clean.name) clean.name = sanitize(clean.name);
   if (clean.owner_name) clean.owner_name = sanitize(clean.owner_name);
@@ -183,30 +105,6 @@ export async function updateBusiness(businessId, updates) {
   if (clean.website) clean.website = sanitize(clean.website);
   if (clean.description) clean.description = sanitize(clean.description);
   if (clean.custom_domain) clean.custom_domain = sanitize(clean.custom_domain);
-
-  if (!supabase) {
-    const businesses = JSON.parse(localStorage.getItem('tp_businesses') || '[]');
-    const idx = businesses.findIndex((b) => b.id === businessId);
-    if (idx === -1) return { data: null, error: 'Bisnis tidak ditemukan' };
-
-    businesses[idx] = {
-      ...businesses[idx],
-      ...clean,
-      updated_at: new Date().toISOString(),
-    };
-    localStorage.setItem('tp_businesses', JSON.stringify(businesses));
-
-    // Update session storage too
-    const cached = sessionStorage.getItem('tp_current_business');
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      if (parsed.id === businessId) {
-        sessionStorage.setItem('tp_current_business', JSON.stringify(businesses[idx]));
-      }
-    }
-
-    return { data: businesses[idx], error: null };
-  }
 
   const { data, error } = await supabase
     .from('businesses')
@@ -218,40 +116,23 @@ export async function updateBusiness(businessId, updates) {
 }
 
 // Register a new business
-// ✅ K6: tambah field location, website, description
 export async function registerBusiness(business) {
-  if (!supabase) {
-    const businesses = JSON.parse(localStorage.getItem('tp_businesses') || '[]');
-    
-    // ✅ FIX 2H: cek keunikan slug dengan suffix angka
-    let finalSlug = business.slug;
-    let counter = 1;
-    while (businesses.some((b) => b.slug === finalSlug)) {
-      finalSlug = `${business.slug}-${counter}`;
-      counter++;
-    }
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
 
-    const newBusiness = {
-      id: Math.random().toString(36).substr(2, 9),
-      created_at: new Date().toISOString(),
-      ...business,
-      slug: finalSlug,
-      name: sanitize(business.name),
-      owner_name: sanitize(business.owner_name || ''),
-      owner_whatsapp: sanitize(business.owner_whatsapp || ''),
-      category: sanitize(business.category || ''),
-      location: sanitize(business.location || ''),
-      website: sanitize(business.website || ''),
-      description: sanitize(business.description || ''),
-    };
-    businesses.push(newBusiness);
-    localStorage.setItem('tp_businesses', JSON.stringify(businesses));
-    return { data: newBusiness, error: null };
-  }
+  const clean = {
+    ...business,
+    name: sanitize(business.name),
+    owner_name: sanitize(business.owner_name || ''),
+    owner_whatsapp: sanitize(business.owner_whatsapp || ''),
+    category: sanitize(business.category || ''),
+    location: sanitize(business.location || ''),
+    website: sanitize(business.website || ''),
+    description: sanitize(business.description || ''),
+  };
 
   const { data, error } = await supabase
     .from('businesses')
-    .insert([business])
+    .insert([clean])
     .select()
     .single();
   return { data, error };
@@ -259,31 +140,23 @@ export async function registerBusiness(business) {
 
 // Submit a lead from landing page
 export async function submitLead(lead) {
-  if (!supabase) {
-    const leads = JSON.parse(localStorage.getItem('tp_leads') || '[]');
-    const newLead = {
-      id: Math.random().toString(36).substr(2, 9),
-      created_at: new Date().toISOString(),
-      ...lead,
-      name: sanitize(lead.name),
-      whatsapp: sanitize(lead.whatsapp),
-      business_name: sanitize(lead.business_name || ''),
-    };
-    leads.push(newLead);
-    localStorage.setItem('tp_leads', JSON.stringify(leads));
-    return { data: newLead, error: null };
-  }
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
+
+  const clean = {
+    name: sanitize(lead.name),
+    whatsapp: sanitize(lead.whatsapp),
+    business_name: sanitize(lead.business_name || ''),
+  };
 
   const { data, error } = await supabase
     .from('leads')
-    .insert([lead])
+    .insert([clean])
     .select()
     .single();
   return { data, error };
 }
 
 // Upload file to Cloudinary (Primary) or Supabase Storage (Fallback)
-// ✅ FIX 1D: gunakan bucket 'testimonial-media' untuk testimoni, 'logos' untuk logo
 export async function uploadFile(bucket, path, file) {
   const cloudinaryCloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
   const cloudinaryUploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
@@ -307,14 +180,11 @@ export async function uploadFile(bucket, path, file) {
     }
   }
 
-  // Fallback to Supabase
+  // Fallback to Supabase Storage
   if (!supabase) {
-    // Generate a local object URL that is valid for the current browser session
-    const objectUrl = URL.createObjectURL(file);
-    return { data: objectUrl, error: null };
+    return { data: null, error: 'Database tidak aktif' };
   }
 
-  // Map bucket name: 'testimonials' -> 'testimonial-media', 'logos' -> 'logos'
   const actualBucket = bucket === 'testimonials' ? 'testimonial-media' : bucket;
 
   const { data, error } = await supabase.storage
@@ -328,14 +198,10 @@ export async function uploadFile(bucket, path, file) {
   return { data: urlData.publicUrl, error: null };
 }
 
-// ---- API Keys System (Pro Feature) ----
+// ---- API Keys System (Pro Feature - Server-side RPC) ----
 
 export async function getApiKeys(businessId) {
-  if (!supabase) {
-    const keys = JSON.parse(localStorage.getItem('tp_api_keys') || '[]');
-    const bizKeys = keys.filter((k) => k.business_id === businessId);
-    return { data: bizKeys, error: null };
-  }
+  if (!supabase) return { data: [], error: 'Database tidak aktif' };
   const { data, error } = await supabase
     .from('api_keys')
     .select('*')
@@ -345,34 +211,17 @@ export async function getApiKeys(businessId) {
 }
 
 export async function generateApiKey(businessId) {
-  const rawKey = 'tp_' + Math.random().toString(36).substr(2, 15) + Math.random().toString(36).substr(2, 15);
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
   
-  // ✅ FIX K5: hash the key before storing
-  const keyHash = await hashApiKey(rawKey);
-  
-  if (!supabase) {
-    const keys = JSON.parse(localStorage.getItem('tp_api_keys') || '[]');
-    const newKey = {
-      id: Math.random().toString(36).substr(2, 9),
-      business_id: businessId,
-      api_key_hash: keyHash,
-      created_at: new Date().toISOString(),
-    };
-    keys.push(newKey);
-    localStorage.setItem('tp_api_keys', JSON.stringify(keys));
-    return { data: { ...newKey, api_key_hash: keyHash }, error: null, rawKey };
-  }
+  const { data, error } = await supabase.rpc('generate_api_key_secure', {
+    p_business_id: businessId
+  });
 
-  const { data, error } = await supabase
-    .from('api_keys')
-    .insert([{ business_id: businessId, api_key_hash: keyHash }])
-    .select()
-    .single();
-  return { data, error, rawKey };
+  if (error) return { data: null, error: error.message };
+  return { data: { business_id: businessId, api_key_hash: data }, error: null, rawKey: data };
 }
 
 // Generate slug from business name
-// ✅ FIX 2H: slug generator (collision handling dilakukan di registerBusiness)
 export function generateSlug(name) {
   if (!name) return '';
   return sanitize(name)
@@ -398,21 +247,7 @@ export function generateToken() {
 
 // Create a new token for a business
 export async function createToken(businessId, { productName, transactionRef } = {}) {
-  if (!supabase) {
-    const tokens = JSON.parse(localStorage.getItem('tp_tokens') || '[]');
-    const newToken = {
-      id: Math.random().toString(36).substr(2, 9),
-      business_id: businessId,
-      token: generateToken(),
-      product_name: sanitize(productName || ''),
-      transaction_ref: sanitize(transactionRef || ''),
-      is_used: false,
-      created_at: new Date().toISOString(),
-    };
-    tokens.push(newToken);
-    localStorage.setItem('tp_tokens', JSON.stringify(tokens));
-    return { data: newToken, error: null };
-  }
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
 
   const { data, error } = await supabase
     .from('tokens')
@@ -428,19 +263,10 @@ export async function createToken(businessId, { productName, transactionRef } = 
   return { data, error };
 }
 
-// ✅ FIX 2E: Validate token ONLY (DOES NOT consume/hangus token)
-// Token hanya dicek validitasnya — tidak di-update is_used
+// Validate token ONLY
 export async function validateToken(tokenValue) {
   if (!tokenValue) return { data: null, error: 'Token tidak boleh kosong' };
-
-  if (!supabase) {
-    const tokens = JSON.parse(localStorage.getItem('tp_tokens') || '[]');
-    const token = tokens.find((t) => t.token === tokenValue);
-    if (!token) return { data: null, error: 'Token tidak valid' };
-    if (token.is_used) return { data: null, error: 'Token sudah digunakan' };
-    // ✅ TIDAK meng-hanguskan token di sini — hanya validasi
-    return { data: token, error: null };
-  }
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
 
   const { data: token, error: fetchError } = await supabase
     .from('tokens')
@@ -451,45 +277,17 @@ export async function validateToken(tokenValue) {
   if (fetchError || !token) return { data: null, error: 'Token tidak valid' };
   if (token.is_used) return { data: null, error: 'Token sudah digunakan' };
   
-  // ✅ TIDAK meng-update is_used — hanya mengembalikan data token
   return { data: token, error: null };
 }
 
-// ✅ FIX 2E: Consume/hangus token (dipanggil SETELAH submit testimoni sukses)
+// Stub function to prevent import breakage
 export async function consumeToken(tokenValue) {
-  if (!tokenValue) return { data: null, error: 'Token tidak boleh kosong' };
-
-  if (!supabase) {
-    const tokens = JSON.parse(localStorage.getItem('tp_tokens') || '[]');
-    const token = tokens.find((t) => t.token === tokenValue);
-    if (!token) return { data: null, error: 'Token tidak valid' };
-    if (token.is_used) return { data: null, error: 'Token sudah digunakan' };
-
-    token.is_used = true;
-    token.used_at = new Date().toISOString();
-    localStorage.setItem('tp_tokens', JSON.stringify(tokens));
-    return { data: token, error: null };
-  }
-
-  const { error: updateError } = await supabase
-    .from('tokens')
-    .update({ is_used: true, used_at: new Date().toISOString() })
-    .eq('token', tokenValue)
-    .eq('is_used', false);
-
-  if (updateError) return { data: null, error: updateError.message };
   return { data: { token: tokenValue, is_used: true }, error: null };
 }
 
 // Get all tokens for a business
 export async function getTokensByBusiness(businessId) {
-  if (!supabase) {
-    const tokens = JSON.parse(localStorage.getItem('tp_tokens') || '[]');
-    const bizTokens = tokens
-      .filter((t) => t.business_id === businessId)
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return { data: bizTokens, error: null };
-  }
+  if (!supabase) return { data: [], error: 'Database tidak aktif' };
 
   const { data, error } = await supabase
     .from('tokens')
