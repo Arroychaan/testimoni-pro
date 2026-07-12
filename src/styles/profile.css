@@ -1,0 +1,217 @@
+/* ============================================
+   Business Profile Page
+   ============================================ */
+
+.profile-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Header --- */
+.profile-header {
+  position: relative;
+  padding: var(--space-16) 0 var(--space-12);
+  background: var(--surface-primary);
+  overflow: hidden;
+}
+
+.profile-header-glow {
+  position: absolute;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 400px;
+  background: radial-gradient(ellipse, rgba(16, 185, 129, 0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.profile-header-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-5);
+  position: relative;
+}
+
+.profile-logo {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-2xl);
+  object-fit: cover;
+  border: 2px solid var(--glass-border);
+}
+
+.profile-logo-placeholder {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-2xl);
+  background: var(--gradient-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: var(--text-3xl);
+  color: white;
+}
+
+.profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.profile-name {
+  font-size: var(--text-3xl);
+}
+
+.profile-category {
+  display: inline-block;
+  font-size: var(--text-sm);
+  color: var(--primary-400);
+  background: rgba(16, 185, 129, 0.1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  align-self: center;
+}
+
+/* --- Stats --- */
+.profile-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: var(--space-5) var(--space-8);
+  background: var(--surface-card);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-2xl);
+  margin-top: var(--space-2);
+}
+
+.profile-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.profile-stat-value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.profile-stat-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.profile-stat-divider {
+  width: 1px;
+  height: 32px;
+  background: var(--glass-border);
+}
+
+@media (max-width: 640px) {
+  .profile-stats {
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+
+  .profile-stat-divider {
+    display: none;
+  }
+}
+
+.profile-cta-link {
+  margin-top: var(--space-2);
+  text-decoration: none;
+}
+
+/* --- Share Bar --- */
+.profile-share-bar {
+  background: var(--surface-secondary);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.profile-share-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.profile-share-link {
+  font-size: var(--text-sm);
+  color: var(--primary-400);
+  background: var(--surface-card);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  flex: 1;
+  min-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-share-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-body);
+}
+
+.profile-share-copy:hover {
+  background: var(--surface-card-hover);
+  color: var(--text-primary);
+}
+
+/* --- Testimonials Section --- */
+.profile-testimonials {
+  flex: 1;
+}
+
+.profile-testimonials-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-8);
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.profile-testimonials-header h2 {
+  font-size: var(--text-2xl);
+}
+
+.profile-testimonials-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 720px;
+}
+
+/* --- Footer --- */
+.profile-footer {
+  padding: var(--space-8) 0;
+  border-top: 1px solid var(--glass-border);
+}

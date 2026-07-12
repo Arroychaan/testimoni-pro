@@ -1,0 +1,28 @@
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-16);
+  min-height: 300px;
+}
+
+.loading-spinner-svg {
+  animation: spin 1s linear infinite;
+}
+
+.loading-spinner-track {
+  stroke: var(--glass-border);
+}
+
+.loading-spinner-circle {
+  stroke: var(--primary-500);
+  stroke-dasharray: 80;
+  stroke-dashoffset: 60;
+}
+
+.loading-spinner-text {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
