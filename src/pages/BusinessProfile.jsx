@@ -86,6 +86,26 @@ export default function BusinessProfile() {
 
       <div style={{ maxWidth: '672px', margin: '0 auto', padding: '2.5rem 1rem' }}>
 
+        {/* Verification Status Warning for Owner */}
+        {business.verification_status !== 'approved' && (
+          <div style={{
+            width: '100%',
+            padding: '0.875rem 1rem',
+            textAlign: 'center',
+            backgroundColor: business.verification_status === 'rejected' ? '#fef2f2' : '#fffbeb',
+            border: `1px solid ${business.verification_status === 'rejected' ? '#fecaca' : '#fde68a'}`,
+            borderRadius: '0.75rem',
+            fontSize: '0.8125rem',
+            color: business.verification_status === 'rejected' ? '#dc2626' : '#b45309',
+            fontWeight: 600,
+            marginBottom: '1.5rem'
+          }}>
+            {business.verification_status === 'rejected'
+              ? '⚠️ Mode Pratinjau: Halaman profil bisnis Anda ditolak oleh administrator dan disembunyikan dari publik.'
+              : '⏳ Mode Pratinjau: Halaman profil ini sedang dalam peninjauan dan disembunyikan dari publik.'}
+          </div>
+        )}
+
         {/* Header */}
         <header style={{ marginBottom: '2.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
@@ -219,7 +239,7 @@ export default function BusinessProfile() {
                     border: `2px solid ${bg}`,
                   }} />
                   <div style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 700, fontSize: '1rem', color: text }}>{testi.customer_name}</span>
+                    <span style={{ fontWeight: 700, fontSize: '1rem', color: text }}>{testi.customer_name?.replace(/<[^>]*>/g, '')}</span>
                     {/* ✅ FIX 2F: tampilkan rating */}
                     <span style={{ fontSize: '0.875rem', color: '#f59e0b', letterSpacing: '0.05em' }}>
                       {renderStars(testi.rating)}
@@ -229,7 +249,7 @@ export default function BusinessProfile() {
                     </span>
                   </div>
                   <p style={{ color: textSec, lineHeight: 1.7, fontSize: '0.9375rem', marginBottom: '0.75rem' }}>
-                    "{testi.review_text || testi.content || ''}"
+                    "{ (testi.review_text || testi.content || '')?.replace(/<[^>]*>/g, '') }"
                   </p>
 
                   {/* Photo Grid */}

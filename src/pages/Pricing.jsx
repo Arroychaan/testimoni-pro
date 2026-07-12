@@ -1,10 +1,24 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Navbar from '../components/ui/Navbar';
 import { useTheme } from '../lib/ThemeContext';
+import { getRegisteredBusinessCount } from '../lib/supabase';
 import { Check, Zap, ShieldCheck, Star, ArrowRight, Gift, Clock, Users, MessageCircle, TrendingUp } from 'lucide-react';
 
 export default function Pricing() {
   const { theme } = useTheme();
+  const [quotaRemaining, setQuotaRemaining] = useState(100);
+  const [loadingPromo, setLoadingPromo] = useState(true);
+
+  useEffect(() => {
+    async function checkPromo() {
+      const { count } = await getRegisteredBusinessCount();
+      setQuotaRemaining(Math.max(0, 100 - count));
+      setLoadingPromo(false);
+    }
+    checkPromo();
+  }, []);
+
   const logoSrc = theme === 'dark' ? '/Assets/Logo/logo-dark-page.svg' : '/Assets/Logo/logo-white-page.svg';
 
   const bg = 'var(--color-bg)';
@@ -39,13 +53,13 @@ export default function Pricing() {
     {
       name: 'Pro',
       tagline: 'Bagi bisnis yang ingin berkembang',
-      price: 'Rp 0',
+      price: quotaRemaining > 0 ? 'Rp 0' : 'Rp 150.000',
       period: '/bulan',
-      originalPrice: 'Rp 150.000',
-      subInfo: 'Gratis untuk 100 pendaftar pertama!',
-      cta: 'Dapatkan Sekarang — Gratis',
+      originalPrice: quotaRemaining > 0 ? 'Rp 150.000' : null,
+      subInfo: quotaRemaining > 0 ? `Gratis untuk ${quotaRemaining} pendaftar pertama!` : 'Langganan bulanan tanpa kontrak.',
+      cta: quotaRemaining > 0 ? 'Dapatkan Sekarang — Gratis' : 'Mulai Berlangganan',
       href: '/daftar',
-      highlighted: true,
+      highlighted: quotaRemaining > 0,
       features: [
         'Semua fitur Gratis',
         'Hapus branding TestimoniPro',
@@ -115,22 +129,26 @@ export default function Pricing() {
 
         {/* Hero */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.375rem 1rem',
-            borderRadius: '9999px',
-            backgroundColor: '#fef3c7',
-            border: '1px solid #fcd34d',
-            color: '#d97706',
-            fontSize: '0.8125rem',
-            fontWeight: 600,
-            marginBottom: '1rem',
-          }}>
-            <Gift size={14} />
-            <span>Promo Launch — PRO gratis untuk 100 pendaftar pertama!</span>
-          </div>
+          {quotaRemaining > 0 && (
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.375rem 1rem',
+              borderRadius: '9999px',
+              backgroundColor: '#fef3c7',
+              border: '1px solid #fcd34d',
+              color: '#d97706',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              marginBottom: '1rem',
+              opacity: loadingPromo ? 0 : 1,
+              transition: 'opacity 0.3s ease',
+            }}>
+              <Gift size={14} />
+              <span>Promo Launch — PRO gratis untuk {quotaRemaining} pendaftar pertama!</span>
+            </div>
+          )}
           <h1 style={{
             fontFamily: 'var(--font-heading)',
             fontSize: 'clamp(1.75rem, 5vw, 2.5rem)',
@@ -148,7 +166,11 @@ export default function Pricing() {
             margin: '0 auto',
             lineHeight: 1.6,
           }}>
-            Paket Gratis berlaku selamanya tanpa batas. Paket Pro juga dapat dinikmati gratis selama kuota 100 pendaftar pertama belum terpenuhi. Daftar sekarang tanpa memerlukan kartu kredit.
+            Paket Gratis berlaku selamanya tanpa batas.{' '}
+            {quotaRemaining > 0 
+              ? `Paket Pro juga dapat dinikmati gratis selama kuota ${quotaRemaining} pendaftar pertama belum terpenuhi.` 
+              : 'Tingkatkan ke paket Pro untuk fitur kustomisasi tingkat lanjut.'}{' '}
+            Daftar sekarang tanpa memerlukan kartu kredit.
           </p>
         </div>
 

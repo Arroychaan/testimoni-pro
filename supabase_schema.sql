@@ -25,8 +25,12 @@ CREATE TABLE IF NOT EXISTS public.businesses (
   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   trust_score INTEGER DEFAULT 0,
   trust_label TEXT DEFAULT 'Belum ada data',
+  verification_status TEXT DEFAULT 'pending' CHECK (verification_status IN ('pending', 'approved', 'rejected')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Idempotent column check for existing databases
+ALTER TABLE public.businesses ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'pending' CHECK (verification_status IN ('pending', 'approved', 'rejected'));
 
 -- Index
 CREATE INDEX IF NOT EXISTS idx_businesses_slug ON public.businesses(slug);
@@ -37,7 +41,7 @@ ALTER TABLE public.businesses ENABLE ROW LEVEL SECURITY;
 -- Kebijakan RLS businesses
 DROP POLICY IF EXISTS "Public read businesses" ON public.businesses;
 CREATE POLICY "Public read businesses" ON public.businesses
-  FOR SELECT USING (true);
+  FOR SELECT USING (verification_status = 'approved' OR auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Anyone can register business" ON public.businesses;
 DROP POLICY IF EXISTS "Owners can register business" ON public.businesses;
@@ -94,6 +98,7 @@ CREATE TABLE IF NOT EXISTS public.testimonials (
   video_url TEXT,
   is_published BOOLEAN DEFAULT TRUE,
   verified_token TEXT,
+  customer_whatsapp TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -108,10 +113,19 @@ DROP POLICY IF EXISTS "Public read published testimonials" ON public.testimonial
 CREATE POLICY "Public read published testimonials" ON public.testimonials
   FOR SELECT USING (is_published = true);
 
--- Izinkan publik menulis ulasan secara langsung
+-- Blokir publik menulis ulasan secara langsung melalui REST API
+-- Ulasan hanya boleh dimasukkan secara aman melalui fungsi RPC public.submit_testimonial_secure
 DROP POLICY IF EXISTS "Anyone can insert testimonials" ON public.testimonials;
-CREATE POLICY "Anyone can insert testimonials" ON public.testimonials
-  FOR INSERT WITH CHECK (true);
+
+-- Izinkan pemilik bisnis menghapus ulasan dari bisnis milik mereka sendiri
+DROP POLICY IF EXISTS "Owners can delete their testimonials" ON public.testimonials;
+CREATE POLICY "Owners can delete their testimonials" ON public.testimonials
+  FOR DELETE USING (
+    EXISTS (
+      SELECT 1 FROM public.businesses 
+      WHERE businesses.id = testimonials.business_id AND businesses.user_id = auth.uid()
+    )
+  );
 
 
 -- 4. Buat Tabel Tokens
@@ -185,6 +199,11 @@ DECLARE
   v_key_hash TEXT;
   v_is_owner BOOLEAN;
 BEGIN
+  -- Validasi Parameter
+  IF p_business_id IS NULL THEN
+    RAISE EXCEPTION 'ID bisnis tidak boleh null';
+  END IF;
+
   -- Periksa kepemilikan bisnis
   SELECT EXISTS (
     SELECT 1 FROM public.businesses 
@@ -211,7 +230,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- B. Mengirimkan Testimoni dan Mengonsumsi Token secara Atomik (Satu Transaksi)
 CREATE OR REPLACE FUNCTION public.submit_testimonial_secure(
   p_business_id UUID,
   p_customer_name TEXT,
@@ -220,7 +238,8 @@ CREATE OR REPLACE FUNCTION public.submit_testimonial_secure(
   p_review_text TEXT,
   p_photo_urls TEXT[],
   p_video_url TEXT,
-  p_verified_token TEXT
+  p_verified_token TEXT,
+  p_customer_whatsapp TEXT DEFAULT NULL
 )
 RETURNS UUID AS $$
 DECLARE
@@ -228,6 +247,10 @@ DECLARE
   v_token_record RECORD;
 BEGIN
   -- Validasi Parameter
+  IF p_business_id IS NULL THEN
+    RAISE EXCEPTION 'ID bisnis tidak boleh null';
+  END IF;
+
   IF p_customer_name IS NULL OR trim(p_customer_name) = '' THEN
     RAISE EXCEPTION 'Nama pelanggan tidak boleh kosong';
   END IF;
@@ -235,24 +258,26 @@ BEGIN
     RAISE EXCEPTION 'Rating harus berupa angka di antara 1 dan 5';
   END IF;
 
-  -- Verifikasi dan pembakaran token (jika ada)
-  IF p_verified_token IS NOT NULL AND trim(p_verified_token) <> '' THEN
-    SELECT * INTO v_token_record FROM public.tokens
-    WHERE token = p_verified_token AND business_id = p_business_id FOR UPDATE;
-
-    IF NOT FOUND THEN
-      RAISE EXCEPTION 'Token verifikasi tidak valid';
-    END IF;
-
-    IF v_token_record.is_used THEN
-      RAISE EXCEPTION 'Token verifikasi sudah pernah digunakan';
-    END IF;
-
-    -- Tandai token telah terpakai
-    UPDATE public.tokens
-    SET is_used = true, used_at = now()
-    WHERE token = p_verified_token;
+  -- Verifikasi dan pembakaran token (WAJIB disertakan untuk semua testimoni)
+  IF p_verified_token IS NULL OR trim(p_verified_token) = '' THEN
+    RAISE EXCEPTION 'Token verifikasi transaksi wajib disertakan';
   END IF;
+
+  SELECT * INTO v_token_record FROM public.tokens
+  WHERE token = p_verified_token AND business_id = p_business_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Token verifikasi tidak valid';
+  END IF;
+
+  IF v_token_record.is_used THEN
+    RAISE EXCEPTION 'Token verifikasi sudah pernah digunakan';
+  END IF;
+
+  -- Tandai token telah terpakai
+  UPDATE public.tokens
+  SET is_used = true, used_at = now()
+  WHERE token = p_verified_token;
 
   -- Insert testimoni
   INSERT INTO public.testimonials (
@@ -263,7 +288,8 @@ BEGIN
     review_text,
     photo_urls,
     video_url,
-    verified_token
+    verified_token,
+    customer_whatsapp
   ) VALUES (
     p_business_id,
     trim(p_customer_name),
@@ -272,7 +298,8 @@ BEGIN
     trim(p_review_text),
     p_photo_urls,
     p_video_url,
-    p_verified_token
+    p_verified_token,
+    trim(p_customer_whatsapp)
   ) RETURNING id INTO v_testimonial_id;
 
   RETURN v_testimonial_id;
@@ -356,6 +383,89 @@ DROP TRIGGER IF EXISTS trg_recalculate_trust_score ON public.testimonials;
 CREATE TRIGGER trg_recalculate_trust_score
 AFTER INSERT OR UPDATE OR DELETE ON public.testimonials
 FOR EACH ROW EXECUTE FUNCTION public.recalculate_business_trust_score();
+
+
+-- ====================================================================
+-- CUSTOMER LOYALTY POINTS SYSTEM
+-- ====================================================================
+
+-- 6. Tabel Poin Loyalitas Pelanggan (customer_loyalty)
+CREATE TABLE IF NOT EXISTS public.customer_loyalty (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID REFERENCES public.businesses(id) ON DELETE CASCADE,
+  customer_name TEXT NOT NULL,
+  customer_email TEXT NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(business_id, customer_email)
+);
+
+-- Index
+CREATE INDEX IF NOT EXISTS idx_customer_loyalty_business ON public.customer_loyalty(business_id);
+CREATE INDEX IF NOT EXISTS idx_customer_loyalty_email ON public.customer_loyalty(customer_email);
+
+-- Enable RLS
+ALTER TABLE public.customer_loyalty ENABLE ROW LEVEL SECURITY;
+
+-- Kebijakan RLS customer_loyalty
+DROP POLICY IF EXISTS "Anyone can insert or update loyalty points" ON public.customer_loyalty;
+CREATE POLICY "Anyone can insert or update loyalty points" ON public.customer_loyalty
+  FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Anyone can update loyalty points" ON public.customer_loyalty;
+CREATE POLICY "Anyone can update loyalty points" ON public.customer_loyalty
+  FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Owners can view loyalty points" ON public.customer_loyalty;
+CREATE POLICY "Owners can view loyalty points" ON public.customer_loyalty
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.businesses 
+      WHERE businesses.id = customer_loyalty.business_id AND businesses.user_id = auth.uid()
+    )
+  );
+
+-- C. Fungsi untuk Mengklaim Poin Loyalitas Secara Aman
+CREATE OR REPLACE FUNCTION public.claim_loyalty_points(
+  p_business_id UUID,
+  p_customer_name TEXT,
+  p_customer_email TEXT,
+  p_verified_token TEXT
+)
+RETURNS VOID AS $$
+DECLARE
+  v_token_valid BOOLEAN;
+BEGIN
+  -- Validasi Parameter
+  IF p_business_id IS NULL THEN
+    RAISE EXCEPTION 'ID bisnis tidak boleh null';
+  END IF;
+
+  -- Validasi email
+  IF p_customer_email IS NULL OR trim(p_customer_email) = '' THEN
+    RAISE EXCEPTION 'Email wajib diisi untuk mengklaim poin';
+  END IF;
+
+  -- Verifikasi token telah terpakai dan valid
+  SELECT EXISTS (
+    SELECT 1 FROM public.tokens
+    WHERE token = p_verified_token AND business_id = p_business_id AND is_used = true
+  ) INTO v_token_valid;
+
+  IF NOT v_token_valid THEN
+    RAISE EXCEPTION 'Token tidak valid atau ulasan belum dikirim';
+  END IF;
+
+  -- Simpan/akumulasikan poin
+  INSERT INTO public.customer_loyalty (business_id, customer_name, customer_email, points)
+  VALUES (p_business_id, trim(p_customer_name), trim(p_customer_email), 50)
+  ON CONFLICT (business_id, customer_email) 
+  DO UPDATE SET 
+    points = public.customer_loyalty.points + 50,
+    customer_name = EXCLUDED.customer_name;
+
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 -- ====================================================================

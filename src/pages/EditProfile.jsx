@@ -388,7 +388,7 @@ export default function EditProfile() {
               type="tel" style={inputStyle}
               placeholder="08xxxxxxxxxx"
               value={form.owner_whatsapp}
-              onChange={(e) => updateField('owner_whatsapp', e.target.value)}
+              onChange={(e) => updateField('owner_whatsapp', e.target.value.replace(/[^0-9+]/g, ''))}
               onFocus={(e) => e.currentTarget.style.borderColor = primary}
               onBlur={(e) => e.currentTarget.style.borderColor = border}
             />

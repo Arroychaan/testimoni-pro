@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Send, CheckCircle2, ArrowLeft, ShieldCheck, Gift, Star, Key, Image as ImageIcon } from 'lucide-react';
-import { getBusinessBySlug, submitTestimonial, validateToken, consumeToken, uploadFile } from '../lib/supabase';
+import { getBusinessBySlug, submitTestimonial, validateToken, consumeToken, uploadFile, claimLoyaltyPoints } from '../lib/supabase';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import FileUpload from '../components/ui/FileUpload';
 
@@ -60,6 +60,10 @@ export default function SubmitExperience() {
   const [error, setError] = useState('');
   const [tokenValid, setTokenValid] = useState(null);
   const [loyaltyClaimed, setLoyaltyClaimed] = useState(false);
+  const [claimEmail, setClaimEmail] = useState('');
+  const [claimingPoints, setClaimingPoints] = useState(false);
+  const [claimError, setClaimError] = useState('');
+  const [customerWhatsapp, setCustomerWhatsapp] = useState('');
 
   const [manualToken, setManualToken] = useState('');
   const [activeToken, setActiveToken] = useState(tokenParam || '');
@@ -129,8 +133,14 @@ export default function SubmitExperience() {
       return;
     }
     // ✅ FIX 2F: validasi rating (tidak lagi hardcoded 5)
-    if (rating === 0) {
+    const ratingNum = Number(rating);
+    if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
       setError('Mohon berikan rating (1-5 bintang) untuk pengalaman Anda.');
+      return;
+    }
+
+    if (business.wa_auto_reply_enabled && !customerWhatsapp.trim()) {
+      setError('Mohon masukkan nomor WhatsApp Anda.');
       return;
     }
 
@@ -158,6 +168,7 @@ export default function SubmitExperience() {
       photo_urls: photoUrls.length > 0 ? photoUrls : null,
       video_url: null,
       verified_token: activeToken || null, // ✅ tetep dikirim untuk tracking
+      customer_whatsapp: business.wa_auto_reply_enabled ? customerWhatsapp.trim() : null
     });
 
     if (submitError) {
@@ -166,21 +177,69 @@ export default function SubmitExperience() {
       return;
     }
 
-    // Store pending loyalty points
-    const existing = JSON.parse(localStorage.getItem('tp_pending_loyalty') || '[]');
-    existing.push({
-      business_slug: slug,
-      business_name: business?.name,
-      points: 50,
-      earned_at: new Date().toISOString(),
-    });
-    localStorage.setItem('tp_pending_loyalty', JSON.stringify(existing));
+    if (business.wa_auto_reply_enabled && customerWhatsapp.trim()) {
+      await triggerWhatsAppAutoReply(customerWhatsapp.trim(), customerName.trim(), rating);
+    }
+
     setSubmitted(true);
     setSubmitting(false);
   }
 
-  function claimLoyalty() {
+  async function triggerWhatsAppAutoReply(phone, name, ratingScore) {
+    if (!business.wa_auto_reply_enabled || !business.wa_auto_reply_template) return;
+    
+    const msg = business.wa_auto_reply_template
+      .replace(/{nama_pelanggan}/g, name)
+      .replace(/{rating}/g, ratingScore);
+
+    console.log(`[WhatsApp Auto-Reply Debug] Mengirim pesan ke ${phone}: "${msg}"`);
+
+    const token = import.meta.env.VITE_FONNTE_TOKEN;
+    if (token) {
+      try {
+        const response = await fetch('https://api.fonnte.com/send', {
+          method: 'POST',
+          headers: {
+            'Authorization': token,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            target: phone,
+            message: msg
+          })
+        });
+        const data = await response.json();
+        console.log('[WhatsApp Auto-Reply Fonnte Response]', data);
+      } catch (err) {
+        console.error('[WhatsApp Auto-Reply Error]', err);
+      }
+    }
+  }
+
+  async function claimLoyalty(e) {
+    if (e) e.preventDefault();
+    if (!claimEmail.trim()) {
+      setClaimError('Harap masukkan email Anda.');
+      return;
+    }
+    setClaimingPoints(true);
+    setClaimError('');
+    
+    const { error: claimErr } = await claimLoyaltyPoints(
+      business.id,
+      customerName,
+      claimEmail.trim(),
+      activeToken
+    );
+
+    if (claimErr) {
+      setClaimError(claimErr);
+      setClaimingPoints(false);
+      return;
+    }
+
     setLoyaltyClaimed(true);
+    setClaimingPoints(false);
   }
 
   const inputStyle = {
@@ -197,6 +256,50 @@ export default function SubmitExperience() {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: text }}>
         <p>Bisnis tidak ditemukan.</p>
+      </div>
+    );
+  }
+
+  if (business.verification_status !== 'approved') {
+    return (
+      <div style={{ minHeight: '100vh', backgroundColor: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', fontFamily: 'var(--font-body)', color: text }}>
+        <div style={{
+          maxWidth: '480px', width: '100%',
+          backgroundColor: bgElevated, border: `1px solid ${border}`,
+          borderRadius: '1.5rem', padding: '2.5rem', textAlign: 'center',
+          boxShadow: 'var(--shadow-lg)',
+        }}>
+          <div style={{
+            width: '72px', height: '72px',
+            backgroundColor: business.verification_status === 'rejected' ? '#fef2f2' : '#fffbeb',
+            color: business.verification_status === 'rejected' ? '#ef4444' : '#f59e0b',
+            borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 1.5rem',
+            fontSize: '2rem'
+          }}>
+            {business.verification_status === 'rejected' ? '❌' : '⏳'}
+          </div>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.5rem', fontWeight: 800, color: text, marginBottom: '0.75rem' }}>
+            {business.verification_status === 'rejected' ? 'Pendaftaran Bisnis Ditolak' : 'Bisnis Sedang Ditinjau'}
+          </h2>
+          <p style={{ color: textSec, fontSize: '0.9375rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+            {business.verification_status === 'rejected'
+              ? 'Maaf, formulir ulasan untuk bisnis ini dinonaktifkan karena pendaftaran ditolak oleh administrator.'
+              : 'Formulir ulasan dinonaktifkan sementara karena profil bisnis ini sedang dalam proses verifikasi oleh administrator TestimoniPro.'}
+          </p>
+          <Link
+            to="/"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.75rem 1.75rem', borderRadius: '0.75rem',
+              backgroundColor: primary, color: '#fff', fontWeight: 700, fontSize: '0.9375rem',
+              textDecoration: 'none',
+              boxShadow: 'var(--shadow-glow)',
+            }}
+          >
+            Kembali ke Beranda
+          </Link>
+        </div>
       </div>
     );
   }
@@ -228,40 +331,57 @@ export default function SubmitExperience() {
           </p>
 
           {!loyaltyClaimed ? (
-            <div style={{
+            <form onSubmit={claimLoyalty} style={{
               padding: '1.25rem',
-              backgroundColor: '#fffbeb',
+              backgroundColor: 'var(--color-bg-secondary)',
               borderRadius: '1rem',
-              border: '1px solid #fde68a',
+              border: `1px solid ${border}`,
               marginBottom: '1.5rem',
               textAlign: 'left',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
                 <Gift size={20} style={{ color: '#f59e0b' }} />
-                <span style={{ fontWeight: 700, color: '#92400e', fontSize: '0.9375rem' }}>Anda Mendapatkan 50 TP Points!</span>
+                <span style={{ fontWeight: 700, color: 'var(--color-text)', fontSize: '0.9375rem' }}>Klaim 50 Poin Loyalitas Anda!</span>
               </div>
-              <p style={{ fontSize: '0.8125rem', color: '#a16207', marginBottom: '0.75rem', lineHeight: 1.5 }}>
-                Kumpulkan poin loyalitas dari setiap ulasan yang Anda berikan, yang dapat ditukarkan dengan berbagai hadiah menarik.
+              <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+                Masukkan alamat email Anda untuk mengkreditkan poin transaksi ke akun loyalitas Anda di bisnis ini.
               </p>
-              <button
-                onClick={claimLoyalty}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-                  padding: '0.625rem 1.25rem', borderRadius: '0.625rem',
-                  backgroundColor: '#f59e0b', color: '#fff', fontWeight: 700, fontSize: '0.8125rem',
-                  border: 'none', cursor: 'pointer',
-                }}
-              >
-                <Star size={14} /> Klaim 50 Poin Saya
-              </button>
-            </div>
+              
+              <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column', marginBottom: '0.5rem' }}>
+                <input
+                  type="email"
+                  required
+                  placeholder="email@anda.com"
+                  value={claimEmail}
+                  onChange={(e) => setClaimEmail(e.target.value)}
+                  style={{ ...inputStyle, padding: '0.5rem 0.75rem', fontSize: '0.875rem' }}
+                />
+                <button
+                  type="submit"
+                  disabled={claimingPoints}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem',
+                    padding: '0.625rem 1.25rem', borderRadius: '0.625rem',
+                    backgroundColor: '#f59e0b', color: '#fff', fontWeight: 700, fontSize: '0.8125rem',
+                    border: 'none', cursor: 'pointer', width: '100%',
+                    opacity: claimingPoints ? 0.7 : 1
+                  }}
+                >
+                  <Star size={14} /> {claimingPoints ? 'Mengirim...' : 'Klaim 50 Poin Saya'}
+                </button>
+              </div>
+
+              {claimError && (
+                <p style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '0.375rem' }}>{claimError}</p>
+              )}
+            </form>
           ) : (
             <div style={{
               padding: '1rem', backgroundColor: '#f0fdf4', borderRadius: '0.75rem',
               border: '1px solid #bbf7d0', marginBottom: '1.5rem',
               fontSize: '0.875rem', color: '#166534', fontWeight: 600,
             }}>
-              ✅ 50 Poin berhasil diklaim! Silakan periksa email Anda untuk informasi lebih lanjut.
+              ✅ 50 Poin berhasil dikreditkan ke email {claimEmail}! Kumpulkan ulasan terverifikasi lainnya untuk menukarkan hadiah.
             </div>
           )}
 
@@ -397,18 +517,9 @@ export default function SubmitExperience() {
             </button>
           </div>
         )}
-        {!activeToken && (
-          <div style={{
-            padding: '0.5rem 0.75rem', borderRadius: '0.75rem',
-            backgroundColor: bg2, border: `1px dashed ${border}`,
-            marginBottom: '1.25rem', fontSize: '0.75rem', color: textMut, textAlign: 'center',
-          }}>
-            ℹ️ Tanpa token, ulasan Anda tetap dapat dikirimkan namun tidak akan memiliki lencana verifikasi.
-          </div>
-        )}
-
-        {/* === FORM === */}
-        <form onSubmit={handleSubmit}>
+        {/* === FORM (Hanya dirender jika token valid) === */}
+        {tokenValid === true && (
+          <form onSubmit={handleSubmit}>
           <div style={{
             display: 'flex', flexDirection: 'column', gap: '1rem',
             backgroundColor: bgElevated, border: `1px solid ${border}`,
@@ -484,6 +595,29 @@ export default function SubmitExperience() {
             />
           </div>
 
+          {/* WhatsApp */}
+          {business.wa_auto_reply_enabled && (
+            <div style={{
+              backgroundColor: bgElevated, border: `1px solid ${border}`,
+              padding: '1.5rem', borderRadius: '1rem', marginBottom: '1rem',
+            }}>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: text, marginBottom: '0.375rem' }}>
+                Nomor WhatsApp Anda <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="tel" required style={inputStyle}
+                placeholder="Contoh: 08xxxxxxxxxx"
+                value={customerWhatsapp}
+                onChange={(e) => setCustomerWhatsapp(e.target.value.replace(/[^0-9]/g, ''))}
+                onFocus={(e) => e.currentTarget.style.borderColor = primary}
+                onBlur={(e) => e.currentTarget.style.borderColor = border}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '0.375rem', display: 'block' }}>
+                Digunakan untuk mengirimkan pesan terima kasih otomatis secara instan.
+              </span>
+            </div>
+          )}
+
           {error && !error.includes('Token') && (
             <p style={{
               fontSize: '0.875rem', color: '#ef4444', backgroundColor: '#fef2f2',
@@ -513,6 +647,7 @@ export default function SubmitExperience() {
             {submitting ? 'Mengirim...' : <><Send size={18} /> Kirim Ulasan</>}
           </button>
         </form>
+        )}
       </div>
     </div>
   );

@@ -14,9 +14,9 @@ export const supabase =
 
 /* ---- Helper Functions ---- */
 
-function sanitize(str) {
+export function sanitize(str) {
   if (!str || typeof str !== 'string') return '';
-  return str.trim();
+  return str.replace(/<[^>]*>/g, '').trim();
 }
 
 // Fetch business by slug
@@ -86,7 +86,8 @@ export async function submitTestimonial(testimonial) {
     p_review_text: sanitize(testimonial.review_text || testimonial.content || ''),
     p_photo_urls: testimonial.photo_urls || null,
     p_video_url: testimonial.video_url || null,
-    p_verified_token: testimonial.verified_token || null
+    p_verified_token: testimonial.verified_token || null,
+    p_customer_whatsapp: testimonial.customer_whatsapp || null
   });
 
   if (error) return { data: null, error: error.message };
@@ -329,4 +330,53 @@ export function calculateStats(testimonials) {
   });
 
   return { totalReviews, averageRating, totalPhotos, totalVideos, ratingDistribution };
+}
+
+// ---- Loyalty Points System (Pro & Verified Feature) ----
+
+export async function claimLoyaltyPoints(businessId, customerName, customerEmail, token) {
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
+
+  const { data, error } = await supabase.rpc('claim_loyalty_points', {
+    p_business_id: businessId,
+    p_customer_name: customerName.trim(),
+    p_customer_email: customerEmail.trim().toLowerCase(),
+    p_verified_token: token
+  });
+
+  if (error) return { data: null, error: error.message };
+  return { data, error: null };
+}
+
+export async function getCustomerLoyaltyList(businessId) {
+  if (!supabase) return { data: [], error: 'Database tidak aktif' };
+
+  const { data, error } = await supabase
+    .from('customer_loyalty')
+    .select('*')
+    .eq('business_id', businessId)
+    .order('points', { ascending: false });
+    
+  return { data: data || [], error };
+}
+
+export async function deleteTestimonial(id) {
+  if (!supabase) return { data: null, error: 'Database tidak aktif' };
+
+  const { data, error } = await supabase
+    .from('testimonials')
+    .delete()
+    .eq('id', id);
+
+  return { data, error };
+}
+
+export async function getRegisteredBusinessCount() {
+  if (!supabase) return { count: 0, error: 'Database tidak aktif' };
+
+  const { count, error } = await supabase
+    .from('businesses')
+    .select('*', { count: 'exact', head: true });
+
+  return { count: count || 0, error };
 }

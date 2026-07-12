@@ -3,14 +3,14 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import Navbar from '../components/ui/Navbar';
 import {
   getBusinessBySlug, getBusinessById, getBusinessByUserId, getTestimonials, getTokensByBusiness,
-  createToken, getApiKeys, generateApiKey, supabase
+  createToken, getApiKeys, generateApiKey, supabase, getCustomerLoyaltyList, deleteTestimonial
 } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import {
   Copy, Check, Plus, ArrowSquareOut, Link as LinkIcon,
   ChatCircleText, TrendUp, Star, PencilSimple,
   ShareNetwork, ChartBar, Key, CaretLeft, CaretRight,
-  Clipboard, CheckCircle, Gift
+  Clipboard, CheckCircle, Gift, Trash
 } from '@phosphor-icons/react';
 import '../styles/dashboard.css';
 
@@ -32,6 +32,9 @@ export default function Dashboard() {
   const [testiPage, setTestiPage] = useState(1);
   const [newlyCreatedApiKey, setNewlyCreatedApiKey] = useState(null);
   const [copiedApiKey, setCopiedApiKey] = useState(false);
+  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  const [tokenForm, setTokenForm] = useState({ productName: '', transactionRef: '' });
+  const [loyaltyList, setLoyaltyList] = useState([]);
 
   const TOKENS_PER_PAGE = 5;
   const TESTI_PER_PAGE = 5;
@@ -73,32 +76,55 @@ export default function Dashboard() {
   }, [bizId, user, authLoading]);
 
   const loadTestimonialsAndTokens = async (id) => {
-    const [testiRes, tokenRes, keysRes] = await Promise.all([
+    const [testiRes, tokenRes, keysRes, loyaltyRes] = await Promise.all([
       getTestimonials(id),
       getTokensByBusiness(id),
       getApiKeys(id),
+      getCustomerLoyaltyList(id),
     ]);
     setTestimonials(testiRes.data || []);
     setTokens(tokenRes.data || []);
     setApiKeys(keysRes.data || []);
+    setLoyaltyList(loyaltyRes.data || []);
     setLoading(false);
   };
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleGenerateToken = async () => {
-    if (!business) return;
+  const openTokenModal = () => {
+    if (business?.verification_status !== 'approved') return;
+    setTokenForm({
+      productName: '',
+      transactionRef: `TRX-${Math.random().toString(36).substring(2, 9).toUpperCase()}`
+    });
+    setIsTokenModalOpen(true);
+  };
+
+  const handleGenerateToken = async (e) => {
+    if (e) e.preventDefault();
+    if (!business || business.verification_status !== 'approved') return;
     setGenerating(true);
     const { data } = await createToken(business.id, {
-      productName: '',
-      transactionRef: `TRX-${Date.now().toString(36).toUpperCase()}`,
+      productName: tokenForm.productName.trim(),
+      transactionRef: tokenForm.transactionRef.trim() || `TRX-${Date.now().toString(36).toUpperCase()}`,
     });
     if (data) {
       setTokens((prev) => [data, ...prev]);
       setJustCreatedToken(data);
       setTokenPage(1);
+      setIsTokenModalOpen(false);
     }
     setGenerating(false);
+  };
+
+  const handleDeleteTestimonial = async (id) => {
+    if (!window.confirm('Apakah Anda yakin ingin menghapus ulasan ini secara permanen?')) return;
+    const { error } = await deleteTestimonial(id);
+    if (error) {
+      alert(`Gagal menghapus ulasan: ${error.message}`);
+      return;
+    }
+    setTestimonials((prev) => prev.filter((t) => t.id !== id));
   };
 
   const copyTokenLink = (token) => {
@@ -234,11 +260,49 @@ export default function Dashboard() {
             <Link to="/settings" className="dash-action-btn">
               <PencilSimple size={16} weight="bold" /> Edit Profil
             </Link>
-            <button onClick={handleGenerateToken} disabled={generating} className="dash-action-btn primary">
-              <Plus size={16} weight="bold" /> {generating ? 'Membuat...' : 'Buat Token'}
+            <button
+              onClick={openTokenModal}
+              disabled={business.verification_status !== 'approved'}
+              className="dash-action-btn primary"
+              style={{
+                opacity: (business.verification_status !== 'approved') ? 0.6 : 1,
+                cursor: (business.verification_status !== 'approved') ? 'not-allowed' : 'pointer'
+              }}
+            >
+              <Plus size={16} weight="bold" /> Buat Token
             </button>
           </div>
         </header>
+
+        {/* ====== WARNING BANNER (Verifikasi Pending/Rejected) ====== */}
+        {business.verification_status !== 'approved' && (
+          <div className="flash-banner" style={{
+            borderLeft: business.verification_status === 'rejected' ? '4px solid #ef4444' : '4px solid #f59e0b',
+            backgroundColor: 'var(--color-bg-elevated)',
+            border: '1px solid var(--color-border)',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            animation: 'scaleIn 0.2s ease-out'
+          }}>
+            <div style={{ fontSize: '1.25rem' }}>
+              {business.verification_status === 'rejected' ? '❌' : '⏳'}
+            </div>
+            <div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 700, color: business.verification_status === 'rejected' ? '#dc2626' : '#d97706', marginBottom: '0.125rem' }}>
+                {business.verification_status === 'rejected' ? 'Akun Bisnis Ditolak' : 'Akun Bisnis Sedang Ditinjau'}
+              </div>
+              <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', lineHeight: 1.4, margin: 0 }}>
+                {business.verification_status === 'rejected'
+                  ? 'Verifikasi identitas bisnis Anda ditolak oleh administrator. Silakan hubungi dukungan pelanggan kami untuk informasi lebih lanjut.'
+                  : 'Profil bisnis Anda saat ini sedang dalam proses antrean verifikasi oleh administrator TestimoniPro. Pembuatan token dinonaktifkan sementara.'}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ====== FLASH BANNER (Token Baru) ====== */}
         {justCreatedToken && (
@@ -342,7 +406,16 @@ export default function Dashboard() {
           <div className="dash-panel">
             <div className="dash-panel-header">
               <h3><LinkIcon size={18} weight="duotone" style={{ color: 'var(--color-primary)' }} /> Daftar Token ({tokens.length})</h3>
-              <button onClick={handleGenerateToken} disabled={generating} className="copy-btn" style={{ fontWeight: 700 }}>
+              <button
+                onClick={openTokenModal}
+                disabled={business.verification_status !== 'approved'}
+                className="copy-btn"
+                style={{
+                  fontWeight: 700,
+                  opacity: (business.verification_status !== 'approved') ? 0.6 : 1,
+                  cursor: (business.verification_status !== 'approved') ? 'not-allowed' : 'pointer'
+                }}
+              >
                 <Plus size={12} weight="bold" /> Buat
               </button>
             </div>
@@ -403,15 +476,31 @@ export default function Dashboard() {
                 <>
                   {paginatedTesti.map((t) => (
                     <div key={t.id} className="testi-card">
-                      <div className="testi-header">
-                        <div className="testi-avatar">{getInitials(t.customer_name)}</div>
-                        <div className="testi-info">
-                          <div className="testi-name">{t.customer_name}</div>
-                          <div className="testi-date">{timeAgo(t.created_at)}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', marginBottom: '0.5rem' }}>
+                        <div className="testi-header" style={{ marginBottom: 0 }}>
+                          <div className="testi-avatar">{getInitials(t.customer_name)}</div>
+                          <div className="testi-info">
+                            <div className="testi-name">{t.customer_name?.replace(/<[^>]*>/g, '')}</div>
+                            <div className="testi-date">{timeAgo(t.created_at)}</div>
+                          </div>
                         </div>
+                        <button
+                          onClick={() => handleDeleteTestimonial(t.id)}
+                          style={{
+                            background: 'none', border: 'none', color: '#ef4444',
+                            cursor: 'pointer', padding: '4px', borderRadius: '4px',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all 0.2s', marginTop: '2px'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          title="Hapus Testimoni"
+                        >
+                          <Trash size={16} weight="bold" />
+                        </button>
                       </div>
                       <div className="testi-stars">{renderStars(t.rating)}</div>
-                      <p className="testi-content">"{t.content || t.review_text}"</p>
+                      <p className="testi-content">"{ (t.content || t.review_text || '')?.replace(/<[^>]*>/g, '') }"</p>
                       {t.photo_urls && t.photo_urls.length > 0 && (
                         <div className="testi-photos">
                           {t.photo_urls.map((url, i) => (
@@ -433,6 +522,56 @@ export default function Dashboard() {
                 </>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* ====== CUSTOMER LOYALTY POINTS PANEL (Full-width) ====== */}
+        <div className="dash-panel full-width" style={{ marginBottom: '1.5rem' }}>
+          <div className="dash-panel-header">
+            <h3>
+              <Gift size={18} weight="duotone" style={{ color: 'var(--color-primary)' }} /> Pelanggan & Poin Loyalitas
+            </h3>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+              {loyaltyList.length} Pelanggan Terdaftar
+            </span>
+          </div>
+          <div className="dash-panel-body">
+            <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', marginBottom: '1.25rem' }}>
+              Pelanggan mendapatkan 50 poin loyalitas dari setiap ulasan terverifikasi yang mereka kirimkan.
+            </p>
+            {loyaltyList.length > 0 ? (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: '400px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left', color: 'var(--color-text-muted)' }}>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>Nama Pelanggan</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>Email</th>
+                      <th style={{ padding: '0.75rem 1rem', fontWeight: 600, textAlign: 'right' }}>Total Poin</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loyaltyList.map((item) => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: 'var(--color-text)', fontWeight: 600 }}>
+                          {item.customer_name}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
+                          {item.customer_email}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', color: 'var(--color-primary)', fontWeight: 700, textAlign: 'right' }}>
+                          {item.points} PTS
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="dash-empty" style={{ padding: '1.5rem' }}>
+                <div className="dash-empty-icon"><Gift size={24} weight="duotone" /></div>
+                <p>Belum ada pelanggan yang mengklaim poin loyalitas.</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -469,6 +608,134 @@ export default function Dashboard() {
           </div>
         </div>
       </main>
+
+      {/* ====== CREATE TOKEN MODAL DIALOG ====== */}
+      {isTokenModalOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 100,
+          padding: '1.5rem',
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <div style={{
+            maxWidth: '440px',
+            width: '100%',
+            backgroundColor: 'var(--color-bg-elevated)',
+            border: '1px solid var(--color-border)',
+            borderRadius: '1.25rem',
+            padding: '1.75rem',
+            boxShadow: 'var(--shadow-lg)',
+            animation: 'scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
+          }}>
+            <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 800, marginBottom: '0.5rem' }}>
+              Menerbitkan Token Transaksi
+            </h3>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+              Tautkan testimoni ke produk/layanan tertentu dan nomor referensi resi/invoice untuk jaminan audit.
+            </p>
+
+            <form onSubmit={handleGenerateToken}>
+              {/* Nama Produk */}
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.375rem' }}>
+                  Nama Produk / Jasa
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: Perawatan Aura Facial, Kopi Arabika"
+                  value={tokenForm.productName}
+                  onChange={(e) => setTokenForm({ ...tokenForm, productName: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '0.625rem 0.875rem',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem',
+                    backgroundColor: 'var(--color-bg)',
+                    color: 'var(--color-text)',
+                    border: '1px solid var(--color-border)',
+                    outline: 'none',
+                    transition: 'border-color 0.15s'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = 'var(--color-primary)'}
+                  onBlur={(e) => e.target.style.borderColor = 'var(--color-border)'}
+                />
+              </div>
+
+              {/* Referensi Transaksi */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.375rem' }}>
+                  ID Transaksi / Resi / Invoice
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: TRX-102948"
+                  value={tokenForm.transactionRef}
+                  onChange={(e) => setTokenForm({ ...tokenForm, transactionRef: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '0.625rem 0.875rem',
+                    borderRadius: '0.5rem',
+                    fontSize: '0.875rem',
+                    backgroundColor: 'var(--color-bg)',
+                    color: 'var(--color-text)',
+                    border: '1px solid var(--color-border)',
+                    outline: 'none',
+                    transition: 'border-color 0.15s'
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = 'var(--color-primary)'}
+                  onBlur={(e) => e.target.style.borderColor = 'var(--color-border)'}
+                />
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsTokenModalOpen(false)}
+                  style={{
+                    padding: '0.625rem 1.25rem',
+                    borderRadius: '0.5rem',
+                    border: '1px solid var(--color-border)',
+                    backgroundColor: 'transparent',
+                    color: 'var(--color-text-secondary)',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={generating}
+                  style={{
+                    padding: '0.625rem 1.25rem',
+                    borderRadius: '0.5rem',
+                    border: 'none',
+                    backgroundColor: 'var(--color-primary)',
+                    color: '#fff',
+                    fontSize: '0.875rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: 'var(--shadow-glow)',
+                    opacity: generating ? 0.7 : 1
+                  }}
+                >
+                  {generating ? 'Membuat...' : 'Terbitkan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
