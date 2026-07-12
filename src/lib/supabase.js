@@ -18,6 +18,20 @@ export function sanitize(str) {
   if (!str || typeof str !== 'string') return '';
   return str.replace(/<[^>]*>/g, '').trim();
 }
+// Validates if pro has expired and forcibly turns it off on the client
+function applyProExpiration(business) {
+  if (!business) return null;
+  if (business.subscription_tier === 'pro' && business.pro_expires_at) {
+    if (new Date(business.pro_expires_at) < new Date()) {
+      business.is_pro = false;
+      business.subscription_tier = 'free';
+      business.custom_domain = null;
+      business.wa_auto_reply_enabled = false;
+      business.wa_auto_reply_template = null;
+    }
+  }
+  return business;
+}
 
 // Fetch business by slug
 export async function getBusinessBySlug(slug) {
@@ -28,7 +42,7 @@ export async function getBusinessBySlug(slug) {
     .select('*')
     .eq('slug', slug)
     .single();
-  return { data, error };
+  return { data: applyProExpiration(data), error };
 }
 
 // Fetch business by ID
@@ -40,7 +54,7 @@ export async function getBusinessById(id) {
     .select('*')
     .eq('id', id)
     .single();
-  return { data, error };
+  return { data: applyProExpiration(data), error };
 }
 
 // Fetch business by User ID (Auth)
@@ -52,7 +66,7 @@ export async function getBusinessByUserId(userId) {
     .select('*')
     .eq('user_id', userId)
     .single();
-  return { data, error };
+  return { data: applyProExpiration(data), error };
 }
 
 // Fetch testimonials for a business
@@ -99,44 +113,48 @@ export async function updateBusiness(businessId, updates) {
   if (!supabase) return { data: null, error: 'Database tidak aktif' };
 
   const clean = { ...updates };
-  if (clean.name) clean.name = sanitize(clean.name);
-  if (clean.owner_name) clean.owner_name = sanitize(clean.owner_name);
-  if (clean.owner_whatsapp) clean.owner_whatsapp = sanitize(clean.owner_whatsapp);
-  if (clean.location) clean.location = sanitize(clean.location);
-  if (clean.website) clean.website = sanitize(clean.website);
-  if (clean.description) clean.description = sanitize(clean.description);
-  if (clean.custom_domain) clean.custom_domain = sanitize(clean.custom_domain);
+  const { error } = await supabase.rpc('update_business_profile', {
+    p_business_id: businessId,
+    p_name: sanitize(clean.name),
+    p_category: clean.category,
+    p_owner_name: sanitize(clean.owner_name),
+    p_owner_whatsapp: sanitize(clean.owner_whatsapp),
+    p_location: sanitize(clean.location),
+    p_website: sanitize(clean.website),
+    p_description: sanitize(clean.description),
+    p_logo_url: clean.logo_url || null,
+    p_custom_domain: sanitize(clean.custom_domain),
+    p_wa_auto_reply_enabled: Boolean(clean.wa_auto_reply_enabled),
+    p_wa_auto_reply_template: sanitize(clean.wa_auto_reply_template)
+  });
 
-  const { data, error } = await supabase
-    .from('businesses')
-    .update(clean)
-    .eq('id', businessId)
-    .select()
-    .single();
-  return { data, error };
+  if (error) return { data: null, error: error.message };
+
+  // Fetch updated data to return
+  const { data } = await supabase.from('businesses').select('*').eq('id', businessId).single();
+  return { data, error: null };
 }
 
 // Register a new business
 export async function registerBusiness(business) {
   if (!supabase) return { data: null, error: 'Database tidak aktif' };
 
-  const clean = {
-    ...business,
-    name: sanitize(business.name),
-    owner_name: sanitize(business.owner_name || ''),
-    owner_whatsapp: sanitize(business.owner_whatsapp || ''),
-    category: sanitize(business.category || ''),
-    location: sanitize(business.location || ''),
-    website: sanitize(business.website || ''),
-    description: sanitize(business.description || ''),
-  };
+  const { data: businessId, error } = await supabase.rpc('register_business_promo', {
+    p_name: sanitize(business.name),
+    p_slug: business.slug,
+    p_category: sanitize(business.category || ''),
+    p_owner_name: sanitize(business.owner_name || ''),
+    p_owner_whatsapp: sanitize(business.owner_whatsapp || ''),
+    p_location: sanitize(business.location || ''),
+    p_website: sanitize(business.website || ''),
+    p_description: sanitize(business.description || ''),
+    p_user_id: business.user_id
+  });
 
-  const { data, error } = await supabase
-    .from('businesses')
-    .insert([clean])
-    .select()
-    .single();
-  return { data, error };
+  if (error) return { data: null, error: error.message };
+  
+  const { data } = await supabase.from('businesses').select('*').eq('id', businessId).single();
+  return { data, error: null };
 }
 
 // Submit a lead from landing page

@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS public.businesses (
   owner_whatsapp TEXT,
   logo_url TEXT,
   is_pro BOOLEAN DEFAULT FALSE,
+  subscription_tier TEXT DEFAULT 'free' CHECK (subscription_tier IN ('free', 'pro', 'enterprise')),
+  pro_expires_at TIMESTAMPTZ,
   custom_domain TEXT,
   wa_auto_reply_enabled BOOLEAN DEFAULT FALSE,
   wa_auto_reply_template TEXT,
@@ -48,9 +50,8 @@ DROP POLICY IF EXISTS "Owners can register business" ON public.businesses;
 CREATE POLICY "Owners can register business" ON public.businesses
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-DROP POLICY IF EXISTS "Owners can update business" ON public.businesses;
-CREATE POLICY "Owners can update business" ON public.businesses
-  FOR UPDATE USING (auth.uid() = user_id);
+-- RLS UPDATE dihapus untuk mencegah klien memodifikasi is_pro atau status billing secara langsung.
+-- Semua update profil harus melalui RPC update_business_profile.
 
 
 -- 2. Buat Tabel API Keys
@@ -495,3 +496,92 @@ CREATE POLICY "Anyone can upload testimonials media" ON storage.objects
 DROP POLICY IF EXISTS "Public read testimonials media" ON storage.objects;
 CREATE POLICY "Public read testimonials media" ON storage.objects
   FOR SELECT USING (bucket_id = 'testimonials');
+
+-- ====================================================================
+-- SECURE RPC: BUSINESS MANAGEMENT
+-- ====================================================================
+
+-- RPC untuk mendaftarkan bisnis dengan promo 100 pendaftar pertama
+CREATE OR REPLACE FUNCTION public.register_business_promo(
+  p_name TEXT,
+  p_slug TEXT,
+  p_category TEXT,
+  p_owner_name TEXT,
+  p_owner_whatsapp TEXT,
+  p_location TEXT,
+  p_website TEXT,
+  p_description TEXT,
+  p_user_id UUID
+)
+RETURNS UUID AS $$
+DECLARE
+  v_business_id UUID;
+  v_total_businesses INTEGER;
+BEGIN
+  -- Hitung jumlah bisnis saat ini secara akurat
+  SELECT COUNT(id) INTO v_total_businesses FROM public.businesses;
+
+  -- Insert bisnis baru
+  INSERT INTO public.businesses (
+    name, slug, category, owner_name, owner_whatsapp, 
+    location, website, description, user_id, 
+    is_pro, subscription_tier, pro_expires_at
+  )
+  VALUES (
+    trim(p_name), p_slug, p_category, trim(p_owner_name), trim(p_owner_whatsapp),
+    trim(p_location), trim(p_website), trim(p_description), p_user_id,
+    (v_total_businesses < 100), -- is_pro = true jika pendaftar < 100
+    CASE WHEN v_total_businesses < 100 THEN 'pro' ELSE 'free' END, -- tier
+    CASE WHEN v_total_businesses < 100 THEN (now() + interval '1 month') ELSE NULL END
+  ) RETURNING id INTO v_business_id;
+
+  RETURN v_business_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- RPC untuk mengupdate profil bisnis dengan aman
+CREATE OR REPLACE FUNCTION public.update_business_profile(
+  p_business_id UUID,
+  p_name TEXT,
+  p_category TEXT,
+  p_owner_name TEXT,
+  p_owner_whatsapp TEXT,
+  p_location TEXT,
+  p_website TEXT,
+  p_description TEXT,
+  p_logo_url TEXT,
+  p_custom_domain TEXT,
+  p_wa_auto_reply_enabled BOOLEAN,
+  p_wa_auto_reply_template TEXT
+)
+RETURNS VOID AS $$
+DECLARE
+  v_is_pro_active BOOLEAN;
+BEGIN
+  -- Validasi kepemilikan bisnis dan status Pro aktif
+  SELECT (subscription_tier IN ('pro', 'enterprise') AND (pro_expires_at IS NULL OR pro_expires_at > now()))
+  INTO v_is_pro_active
+  FROM public.businesses 
+  WHERE id = p_business_id AND user_id = auth.uid();
+
+  IF v_is_pro_active IS NULL THEN
+    RAISE EXCEPTION 'Akses ditolak: Bukan pemilik bisnis';
+  END IF;
+
+  UPDATE public.businesses
+  SET
+    name = trim(p_name),
+    category = p_category,
+    owner_name = trim(p_owner_name),
+    owner_whatsapp = trim(p_owner_whatsapp),
+    location = trim(p_location),
+    website = trim(p_website),
+    description = trim(p_description),
+    logo_url = p_logo_url,
+    -- Fitur Pro akan dimatikan otomatis jika langganan kedaluwarsa
+    custom_domain = CASE WHEN v_is_pro_active THEN trim(p_custom_domain) ELSE NULL END,
+    wa_auto_reply_enabled = CASE WHEN v_is_pro_active THEN p_wa_auto_reply_enabled ELSE FALSE END,
+    wa_auto_reply_template = CASE WHEN v_is_pro_active THEN trim(p_wa_auto_reply_template) ELSE NULL END
+  WHERE id = p_business_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

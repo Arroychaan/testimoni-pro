@@ -189,6 +189,12 @@ export default function Dashboard() {
     ));
   };
 
+  const getDaysUntilExpiry = (expiryDateStr) => {
+    if (!expiryDateStr) return null;
+    const diffMs = new Date(expiryDateStr) - new Date();
+    return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  };
+
   // Pagination logic
   const paginatedTokens = tokens.slice((tokenPage - 1) * TOKENS_PER_PAGE, tokenPage * TOKENS_PER_PAGE);
   const totalTokenPages = Math.ceil(tokens.length / TOKENS_PER_PAGE);
@@ -273,6 +279,34 @@ export default function Dashboard() {
             </button>
           </div>
         </header>
+
+        {/* ====== PROMO EXPIRY BANNER ====== */}
+        {business.subscription_tier === 'pro' && business.pro_expires_at && getDaysUntilExpiry(business.pro_expires_at) !== null && getDaysUntilExpiry(business.pro_expires_at) <= 7 && (
+          <div className="flash-banner" style={{
+            borderLeft: '4px solid #ef4444',
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fecaca',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            animation: 'scaleIn 0.2s ease-out'
+          }}>
+            <div style={{ fontSize: '1.25rem' }}>⚠️</div>
+            <div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#dc2626', marginBottom: '0.125rem' }}>
+                Peringatan: Masa Aktif Pro Segera Berakhir
+              </div>
+              <p style={{ fontSize: '0.8125rem', color: '#b91c1c', lineHeight: 1.4, margin: 0 }}>
+                {getDaysUntilExpiry(business.pro_expires_at) > 0 
+                  ? `Paket Pro gratis Anda akan berakhir dalam ${getDaysUntilExpiry(business.pro_expires_at)} hari. Segera perbarui langganan Anda.`
+                  : 'Paket Pro gratis Anda telah berakhir. Harap perbarui langganan untuk mempertahankan fitur premium.'}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ====== WARNING BANNER (Verifikasi Pending/Rejected) ====== */}
         {business.verification_status !== 'approved' && (

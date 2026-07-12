@@ -56,8 +56,8 @@ export default function Pricing() {
       price: quotaRemaining > 0 ? 'Rp 0' : 'Rp 150.000',
       period: '/bulan',
       originalPrice: quotaRemaining > 0 ? 'Rp 150.000' : null,
-      subInfo: quotaRemaining > 0 ? `Gratis untuk ${quotaRemaining} pendaftar pertama!` : 'Langganan bulanan tanpa kontrak.',
-      cta: quotaRemaining > 0 ? 'Dapatkan Sekarang — Gratis' : 'Mulai Berlangganan',
+      subInfo: quotaRemaining > 0 ? `Gratis 1 Bulan untuk ${quotaRemaining} pendaftar pertama!` : 'Langganan bulanan tanpa kontrak.',
+      cta: quotaRemaining > 0 ? 'Klaim Pro Gratis (1 Bulan)' : 'Mulai Berlangganan',
       href: '/daftar',
       highlighted: quotaRemaining > 0,
       features: [
@@ -146,7 +146,7 @@ export default function Pricing() {
               transition: 'opacity 0.3s ease',
             }}>
               <Gift size={14} />
-              <span>Promo Launch — PRO gratis untuk {quotaRemaining} pendaftar pertama!</span>
+              <span>Promo Launch — PRO gratis 1 bulan untuk {quotaRemaining} pendaftar pertama!</span>
             </div>
           )}
           <h1 style={{
@@ -168,7 +168,7 @@ export default function Pricing() {
           }}>
             Paket Gratis berlaku selamanya tanpa batas.{' '}
             {quotaRemaining > 0 
-              ? `Paket Pro juga dapat dinikmati gratis selama kuota ${quotaRemaining} pendaftar pertama belum terpenuhi.` 
+              ? `Paket Pro dapat dinikmati gratis selama 1 bulan penuh (sisa kuota: ${quotaRemaining} pendaftar).` 
               : 'Tingkatkan ke paket Pro untuk fitur kustomisasi tingkat lanjut.'}{' '}
             Daftar sekarang tanpa memerlukan kartu kredit.
           </p>
