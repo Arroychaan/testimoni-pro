@@ -3,10 +3,16 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import Navbar from '../components/ui/Navbar';
 import {
   getBusinessBySlug, getBusinessById, getBusinessByUserId, getTestimonials, getTokensByBusiness,
-  createToken, getApiKeys, generateApiKey, updateBusiness, supabase
+  createToken, getApiKeys, generateApiKey, supabase
 } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
-import { Copy, Check, Plus, ArrowSquareOut, Link as LinkIcon, Users, ChatCircleText, TrendUp, Gift } from '@phosphor-icons/react';
+import {
+  Copy, Check, Plus, ArrowSquareOut, Link as LinkIcon,
+  ChatCircleText, TrendUp, Star, PencilSimple,
+  ShareNetwork, ChartBar, Key, CaretLeft, CaretRight,
+  Clipboard, CheckCircle, Gift
+} from '@phosphor-icons/react';
+import '../styles/dashboard.css';
 
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
@@ -21,10 +27,15 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [justCreatedToken, setJustCreatedToken] = useState(null);
+  const [copiedToken, setCopiedToken] = useState(null);
+  const [tokenPage, setTokenPage] = useState(1);
+  const [testiPage, setTestiPage] = useState(1);
+
+  const TOKENS_PER_PAGE = 5;
+  const TESTI_PER_PAGE = 5;
 
   const loadData = useCallback(async () => {
     if (!supabase) {
-      // Simulation mode
       let biz = null;
       if (bizId) {
         const res = await getBusinessById(bizId);
@@ -33,7 +44,6 @@ export default function Dashboard() {
         const cached = sessionStorage.getItem('tp_current_business');
         if (cached) biz = JSON.parse(cached);
       }
-      
       if (biz) {
         setBusiness(biz);
         loadTestimonialsAndTokens(biz.id);
@@ -84,6 +94,7 @@ export default function Dashboard() {
     if (data) {
       setTokens((prev) => [data, ...prev]);
       setJustCreatedToken(data);
+      setTokenPage(1);
     }
     setGenerating(false);
   };
@@ -91,6 +102,8 @@ export default function Dashboard() {
   const copyTokenLink = (token) => {
     const link = `${window.location.origin}/experience/${business.slug}?token=${token}`;
     navigator.clipboard.writeText(link);
+    setCopiedToken(token);
+    setTimeout(() => setCopiedToken(null), 2000);
     return link;
   };
 
@@ -99,15 +112,7 @@ export default function Dashboard() {
     const { data, rawKey } = await generateApiKey(business.id);
     if (data) {
       setApiKeys((prev) => [data, ...prev]);
-      alert(`API Key berhasil dibuat!\n\nSimpan kunci ini karena tidak akan ditampilkan lagi secara penuh:\n\n${rawKey}`);
-    }
-  };
-
-  const handleTogglePro = async () => {
-    const newVal = !business.is_pro;
-    const { data } = await updateBusiness(business.id, { is_pro: newVal });
-    if (data) {
-      setBusiness(data);
+      alert(`API Key berhasil dibuat!\n\nSimpan kunci ini karena tidak akan ditampilkan lagi:\n\n${rawKey}`);
     }
   };
 
@@ -118,383 +123,304 @@ export default function Dashboard() {
     conversionRate: tokens.length > 0 ? Math.round((tokens.filter((t) => t.is_used).length / tokens.length) * 100) : 0,
   };
 
-  const bg = 'var(--color-bg)';
-  const bg2 = 'var(--color-bg-secondary)';
-  const bgElevated = 'var(--color-bg-elevated)';
-  const text = 'var(--color-text)';
-  const textSec = 'var(--color-text-secondary)';
-  const textMut = 'var(--color-text-muted)';
-  const border = 'var(--color-border)';
-  const primary = 'var(--color-primary)';
+  const getInitials = (name) => {
+    if (!name) return 'B';
+    return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  };
 
+  const timeAgo = (dateStr) => {
+    const now = new Date();
+    const d = new Date(dateStr);
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'baru saja';
+    if (diffMin < 60) return `${diffMin} menit lalu`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr} jam lalu`;
+    const diffDay = Math.floor(diffHr / 24);
+    if (diffDay < 7) return `${diffDay} hari lalu`;
+    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const renderStars = (rating) => {
+    const r = rating || 5;
+    return Array.from({ length: 5 }, (_, i) => (
+      <Star key={i} size={14} weight={i < r ? 'fill' : 'regular'} style={{ color: i < r ? '#f59e0b' : 'var(--color-border)' }} />
+    ));
+  };
+
+  // Pagination logic
+  const paginatedTokens = tokens.slice((tokenPage - 1) * TOKENS_PER_PAGE, tokenPage * TOKENS_PER_PAGE);
+  const totalTokenPages = Math.ceil(tokens.length / TOKENS_PER_PAGE);
+  const paginatedTesti = testimonials.slice((testiPage - 1) * TESTI_PER_PAGE, testiPage * TESTI_PER_PAGE);
+  const totalTestiPages = Math.ceil(testimonials.length / TESTI_PER_PAGE);
+
+  // --- LOADING STATE: Skeleton Shimmer ---
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: text }}>
-        <p>Memuat Dashboard...</p>
+      <div className="dash-layout">
+        <Navbar />
+        <main className="dash-main">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--color-border)' }}>
+            <div className="skeleton" style={{ width: 48, height: 48, borderRadius: '0.875rem' }} />
+            <div>
+              <div className="skeleton skeleton-text" style={{ width: 200 }} />
+              <div className="skeleton skeleton-text-short" style={{ width: 140 }} />
+            </div>
+          </div>
+          <div className="dash-stats-grid">
+            {[1, 2, 3, 4].map(i => <div key={i} className="skeleton skeleton-card" />)}
+          </div>
+          <div className="dash-content-grid">
+            <div className="skeleton" style={{ height: 300, borderRadius: '1rem' }} />
+            <div className="skeleton" style={{ height: 300, borderRadius: '1rem' }} />
+          </div>
+        </main>
       </div>
     );
   }
 
+  // --- NO BUSINESS STATE ---
   if (!business) {
-    // ✅ FIX 2G: session trap — tampilkan pesan yang jelas & link yang membantu
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: bg, color: text, fontFamily: 'var(--font-body)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
-        <div style={{
-          width: '64px', height: '64px',
-          borderRadius: '50%',
-          backgroundColor: 'var(--color-primary-light)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          marginBottom: '0.5rem',
-          fontSize: '1.75rem',
-        }}>
-          📋
+      <div className="dash-layout" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
+        <div className="dash-empty-icon" style={{ width: 64, height: 64, marginBottom: '0.5rem' }}>
+          <ChartBar size={28} weight="duotone" />
         </div>
-        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 700, color: text }}>
+        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 700 }}>
           Tidak Ada Bisnis yang Terhubung
         </h2>
-        <p style={{ color: textSec, maxWidth: '400px', lineHeight: 1.6, fontSize: '0.9375rem' }}>
-          Anda belum memiliki sesi bisnis yang aktif.
-          Silakan daftarkan bisnis Anda atau gunakan URL dashboard yang valid.
+        <p style={{ color: 'var(--color-text-secondary)', maxWidth: 400, lineHeight: 1.6, fontSize: '0.9375rem' }}>
+          Anda belum memiliki profil bisnis yang aktif. Silakan daftarkan bisnis Anda terlebih dahulu.
         </p>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-          <Link to="/daftar" style={{
-            display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-            padding: '0.75rem 1.5rem', borderRadius: '0.75rem',
-            backgroundColor: primary, color: '#fff', fontWeight: 700, fontSize: '0.9375rem',
-            textDecoration: 'none',
-          }}>
-            Daftarkan Bisnis Anda
-          </Link>
-          <Link to="/" style={{
-            display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-            padding: '0.75rem 1.5rem', borderRadius: '0.75rem',
-            backgroundColor: bgElevated, color: text, fontWeight: 600, fontSize: '0.9375rem',
-            textDecoration: 'none', border: `1px solid ${border}`,
-          }}>
-            Kembali ke Beranda
-          </Link>
+          <Link to="/daftar" className="dash-action-btn primary">Daftarkan Bisnis Anda</Link>
+          <Link to="/" className="dash-action-btn">Kembali ke Beranda</Link>
         </div>
       </div>
     );
   }
 
+  // --- MAIN DASHBOARD ---
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: bg, color: text, fontFamily: 'var(--font-body)' }}>
+    <div className="dash-layout">
       <Navbar />
 
-      <main style={{ maxWidth: '960px', margin: '0 auto', padding: '6rem 1.5rem 4rem' }}>
-        {/* Header */}
-        <header style={{ marginBottom: '2.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.75rem', fontWeight: 800, color: text, marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              👋 Selamat datang, {business.name}
-              {business.is_pro && (
-                <span style={{ fontSize: '0.75rem', backgroundColor: '#fbbf24', color: '#fff', padding: '0.25rem 0.5rem', borderRadius: '4px', verticalAlign: 'middle' }}>PRO</span>
-              )}
-            </h1>
-            <p style={{ color: textSec, fontSize: '0.9375rem' }}>Berikut performa reputasi bisnis Anda hari ini.</p>
+      <main className="dash-main">
+        {/* ====== HEADER ====== */}
+        <header className="dash-header">
+          <div className="dash-header-left">
+            <div className="dash-avatar">{getInitials(business.name)}</div>
+            <div className="dash-header-info">
+              <h1>{business.name}</h1>
+              <p>Berikut performa reputasi bisnis Anda.</p>
+            </div>
           </div>
-          <button
-            onClick={handleTogglePro}
-            style={{
-              padding: '0.5rem 1rem', borderRadius: '0.5rem', fontSize: '0.75rem', fontWeight: 600,
-              backgroundColor: business.is_pro ? bg2 : '#fbbf24',
-              color: business.is_pro ? textSec : '#fff',
-              border: `1px solid ${border}`, cursor: 'pointer',
-            }}
-          >
-            [Dev] Simulasi Mode: {business.is_pro ? 'Matikan Pro' : 'Aktifkan Pro'}
-          </button>
+          <div className="dash-header-actions">
+            <Link to="/settings" className="dash-action-btn">
+              <PencilSimple size={16} weight="bold" /> Edit Profil
+            </Link>
+            <button onClick={handleGenerateToken} disabled={generating} className="dash-action-btn primary">
+              <Plus size={16} weight="bold" /> {generating ? 'Membuat...' : 'Buat Token'}
+            </button>
+          </div>
         </header>
 
-        {/* Stat Cards */}
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '2.5rem' }}>
+        {/* ====== FLASH BANNER (Token Baru) ====== */}
+        {justCreatedToken && (
+          <div className="flash-banner">
+            <div>
+              <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-primary)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                <CheckCircle size={16} weight="fill" /> Token Baru Berhasil Dibuat
+              </div>
+              <code>{`${window.location.origin}/experience/${business.slug}?token=${justCreatedToken.token}`}</code>
+            </div>
+            <button
+              onClick={() => { copyTokenLink(justCreatedToken.token); setJustCreatedToken(null); }}
+              className="dash-action-btn primary"
+              style={{ fontSize: '0.75rem', padding: '0.375rem 0.875rem' }}
+            >
+              <Copy size={14} /> Salin Link
+            </button>
+          </div>
+        )}
+
+        {/* ====== STAT CARDS ====== */}
+        <section className="dash-stats-grid">
           {[
-            { label: 'Testimoni Masuk', value: stats.total, icon: <ChatCircleText size={20} weight="duotone" />, trend: null },
-            { label: 'Token Aktif', value: stats.unusedTokens, icon: <LinkIcon size={20} weight="duotone" />, trend: 'Siap dikirim' },
-            { label: 'Token Terpakai', value: stats.usedTokens, icon: <Check size={20} weight="duotone" />, trend: null },
-            { label: 'Konversi', value: `${stats.conversionRate}%`, icon: <TrendUp size={20} weight="duotone" />, trend: null },
+            { label: 'Total Testimoni', value: stats.total, icon: <ChatCircleText size={20} weight="duotone" />, cls: 'stat-testimoni' },
+            { label: 'Token Aktif', value: stats.unusedTokens, icon: <LinkIcon size={20} weight="duotone" />, cls: 'stat-aktif', sub: 'Siap dikirim' },
+            { label: 'Token Terpakai', value: stats.usedTokens, icon: <Check size={20} weight="bold" />, cls: 'stat-terpakai' },
+            { label: 'Konversi', value: `${stats.conversionRate}%`, icon: <TrendUp size={20} weight="duotone" />, cls: 'stat-konversi' },
           ].map((stat, i) => (
-            <div key={i} style={{
-              padding: '1.25rem', borderRadius: '1rem',
-              backgroundColor: bgElevated, border: `1px solid ${border}`,
-              boxShadow: 'var(--shadow-sm)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: primary, marginBottom: '0.75rem' }}>
-                {stat.icon}
-                <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: textMut, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stat.label}</span>
+            <div key={i} className={`dash-stat-card ${stat.cls}`} style={{ padding: '1.25rem', borderRadius: '1rem', backgroundColor: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{stat.label}</span>
+                <div className="stat-icon">{stat.icon}</div>
               </div>
-              <div style={{ fontSize: '2rem', fontWeight: 800, fontFamily: 'var(--font-heading)', color: text, lineHeight: 1 }}>
-                {stat.value}
-              </div>
-              {stat.trend && <div style={{ fontSize: '0.75rem', color: textMut, marginTop: '0.25rem' }}>{stat.trend}</div>}
+              <div style={{ fontSize: '2rem', fontWeight: 800, fontFamily: 'var(--font-heading)', lineHeight: 1 }}>{stat.value}</div>
+              {stat.sub && <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', marginTop: '0.375rem' }}>{stat.sub}</div>}
             </div>
           ))}
         </section>
 
-        {/* Generate Token Section */}
-        <section style={{
-          padding: '1.5rem', borderRadius: '1rem',
-          backgroundColor: bgElevated, border: `1px solid ${border}`,
-          marginBottom: '2rem',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+        {/* ====== QUICK LINKS ====== */}
+        <section className="dash-quick-links">
+          <Link to={`/brand/${business.slug}`} className="quick-link-card">
+            <div className="quick-link-icon"><ArrowSquareOut size={20} weight="duotone" /></div>
             <div>
-              <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.125rem', fontWeight: 700, color: text, marginBottom: '0.25rem' }}>
-                🔗 Generate Token Unik
-              </h3>
-              <p style={{ fontSize: '0.875rem', color: textSec }}>
-                Satu token mewakili satu transaksi dan satu ulasan. Kirimkan kepada pelanggan melalui WhatsApp, email, atau secara langsung.
-              </p>
+              <div className="quick-link-title">Profil Publik</div>
+              <div className="quick-link-desc">Halaman reputasi bisnis Anda</div>
             </div>
-            <button
-              onClick={handleGenerateToken}
-              disabled={generating}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
-                padding: '0.75rem 1.5rem', borderRadius: '0.75rem',
-                backgroundColor: primary, color: '#fff', fontWeight: 700, fontSize: '0.9375rem',
-                border: 'none', cursor: 'pointer',
-                boxShadow: 'var(--shadow-glow)',
-                transition: 'all 0.15s ease',
-                opacity: generating ? 0.7 : 1,
-              }}
-            >
-              <Plus size={18} weight="bold" />
-              {generating ? 'Membuat...' : 'Buat Token Baru'}
-            </button>
-          </div>
-
-          {/* Just created token flash */}
-          {justCreatedToken && (
-            <div style={{
-              marginTop: '1rem', padding: '1rem',
-              backgroundColor: 'var(--color-primary-light)',
-              borderRadius: '0.75rem', border: `1px solid var(--color-primary-border)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem',
-            }}>
-              <div>
-                <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: primary, marginBottom: '0.25rem' }}>Token Baru Dibuat! 🎉</div>
-                <code style={{ fontSize: '1rem', fontWeight: 700, color: text }}>
-                  {`${window.location.origin}/experience/${business.slug}?token=${justCreatedToken.token}`}
-                </code>
-              </div>
-              <button
-                onClick={() => { copyTokenLink(justCreatedToken.token); setJustCreatedToken(null); }}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-                  padding: '0.5rem 1rem', borderRadius: '0.5rem',
-                  backgroundColor: primary, color: '#fff', fontWeight: 600, fontSize: '0.8125rem',
-                  border: 'none', cursor: 'pointer',
-                }}
-              >
-                <Copy size={14} /> Salin Link
-              </button>
+          </Link>
+          <Link to={`/experience/${business.slug}`} className="quick-link-card">
+            <div className="quick-link-icon"><Gift size={20} weight="duotone" /></div>
+            <div>
+              <div className="quick-link-title">Form Testimoni</div>
+              <div className="quick-link-desc">Bagikan ke pelanggan Anda</div>
             </div>
-          )}
+          </Link>
+          <a href={`/brand/${business.slug}`} target="_blank" rel="noopener noreferrer" className="quick-link-card">
+            <div className="quick-link-icon"><ShareNetwork size={20} weight="duotone" /></div>
+            <div>
+              <div className="quick-link-title">Bagikan</div>
+              <div className="quick-link-desc">Sebar ke media sosial</div>
+            </div>
+          </a>
         </section>
 
-        {/* Token List */}
-        {tokens.length > 0 && (
-          <section style={{ marginBottom: '2rem' }}>
-            <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1rem', fontWeight: 700, color: text, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <LinkIcon size={18} weight="duotone" style={{ color: primary }} />
-              Daftar Token ({tokens.length})
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {tokens.slice(0, 10).map((t) => (
-                <div key={t.id} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem',
-                  padding: '0.875rem 1rem', borderRadius: '0.75rem',
-                  backgroundColor: bgElevated, border: `1px solid ${border}`,
-                }}>
-                  <div>
-                    <code style={{ fontSize: '0.875rem', fontWeight: 700, color: text }}>{t.token}</code>
-                    <span style={{ marginLeft: '0.75rem', fontSize: '0.75rem', color: textMut }}>
-                      {t.product_name || 'Tanpa produk'} · {new Date(t.created_at).toLocaleDateString('id-ID')}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    {t.is_used ? (
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#22c55e', backgroundColor: '#f0fdf4', padding: '0.25rem 0.625rem', borderRadius: '9999px', border: '1px solid #bbf7d0' }}>✓ Terpakai</span>
-                    ) : (
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: primary, backgroundColor: 'var(--color-primary-light)', padding: '0.25rem 0.625rem', borderRadius: '9999px', border: '1px solid var(--color-primary-border)' }}>Aktif</span>
-                    )}
-                    {!t.is_used && (
-                      <button
-                        onClick={() => copyTokenLink(t.token)}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                          padding: '0.375rem 0.75rem', borderRadius: '0.5rem',
-                          backgroundColor: bg2, color: textSec, fontWeight: 600, fontSize: '0.75rem',
-                          border: `1px solid ${border}`, cursor: 'pointer',
-                        }}
-                      >
-                        <Copy size={12} /> Salin
-                      </button>
-                    )}
-                  </div>
+        {/* ====== 2-COLUMN CONTENT ====== */}
+        <div className="dash-content-grid">
+          {/* --- TOKEN PANEL --- */}
+          <div className="dash-panel">
+            <div className="dash-panel-header">
+              <h3><LinkIcon size={18} weight="duotone" style={{ color: 'var(--color-primary)' }} /> Daftar Token ({tokens.length})</h3>
+              <button onClick={handleGenerateToken} disabled={generating} className="copy-btn" style={{ fontWeight: 700 }}>
+                <Plus size={12} weight="bold" /> Buat
+              </button>
+            </div>
+            <div className="dash-panel-body">
+              {tokens.length === 0 ? (
+                <div className="dash-empty">
+                  <div className="dash-empty-icon"><Clipboard size={24} weight="duotone" /></div>
+                  <p>Belum ada token. Buat token dan kirimkan ke pelanggan untuk mulai mengumpulkan testimoni.</p>
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Developer API (Pro Feature) */}
-        <section style={{ marginBottom: '2rem' }}>
-          <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.125rem', fontWeight: 700, color: text, marginBottom: '1rem' }}>
-            Developer API
-            <span style={{ fontSize: '0.625rem', backgroundColor: '#fbbf24', color: '#fff', padding: '0.125rem 0.375rem', borderRadius: '4px', marginLeft: '0.5rem', verticalAlign: 'middle' }}>PRO</span>
-          </h3>
-          
-          <div style={{
-            padding: '1.5rem', borderRadius: '1rem',
-            backgroundColor: bgElevated, border: `1px solid ${border}`,
-            opacity: business.is_pro ? 1 : 0.5, pointerEvents: business.is_pro ? 'auto' : 'none',
-          }}>
-            {!business.is_pro && (
-              <div style={{ color: '#92400e', marginBottom: '1rem', fontSize: '0.875rem', fontWeight: 600 }}>
-                Tingkatkan ke Pro untuk mendapatkan akses API penuh.
-              </div>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
-              <div>
-                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: text, marginBottom: '0.25rem' }}>API Keys</h4>
-                <p style={{ fontSize: '0.875rem', color: textSec }}>Gunakan API Key ini untuk mengintegrasikan TestimoniPro dengan website atau aplikasi Anda sendiri.</p>
-              </div>
-              <button
-                onClick={handleGenerateApiKey}
-                style={{
-                  padding: '0.625rem 1.25rem', borderRadius: '0.5rem',
-                  backgroundColor: bg2, color: text, fontWeight: 600, fontSize: '0.875rem',
-                  border: `1px solid ${border}`, cursor: 'pointer',
-                }}
-              >
-                Buat API Key Baru
-              </button>
-            </div>
-
-            {apiKeys.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {apiKeys.map((key) => (
-                  <div key={key.id} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '0.75rem 1rem', borderRadius: '0.5rem', backgroundColor: bg, border: `1px solid ${border}`
-                  }}>
-                    <div>
-                      <code style={{ fontSize: '0.875rem', color: text }}>{key.api_key_hash.substring(0, 8)}...****************</code>
-                      <div style={{ fontSize: '0.75rem', color: textMut }}>Dibuat pada: {new Date(key.created_at).toLocaleDateString('id-ID')}</div>
+              ) : (
+                <>
+                  {paginatedTokens.map((t) => (
+                    <div key={t.id} className="token-row">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', minWidth: 0 }}>
+                        <span className="token-code">{t.token.substring(0, 8)}...</span>
+                        <span className="token-meta">
+                          {t.product_name || 'Tanpa produk'} · {timeAgo(t.created_at)}
+                        </span>
+                      </div>
+                      <div className="token-actions">
+                        <span className={`token-badge ${t.is_used ? 'terpakai' : 'aktif'}`}>
+                          {t.is_used ? 'Terpakai' : 'Aktif'}
+                        </span>
+                        {!t.is_used && (
+                          <button onClick={() => copyTokenLink(t.token)} className="copy-btn">
+                            {copiedToken === t.token ? <><Check size={12} /> Tersalin</> : <><Copy size={12} /> Salin</>}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#22c55e' }}>Aktif</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p style={{ fontSize: '0.875rem', color: textMut, fontStyle: 'italic' }}>Belum ada API Key yang dibuat.</p>
-            )}
-          </div>
-        </section>
-
-        {/* Quick Links */}
-        <section style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem',
-          marginBottom: '2rem',
-        }}>
-          <Link to={`/brand/${business.slug}`} style={{
-            padding: '1.25rem', borderRadius: '1rem',
-            backgroundColor: bgElevated, border: `1px solid ${border}`,
-            textDecoration: 'none', color: text,
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
-            transition: 'border-color 0.15s',
-          }}>
-            <ArrowSquareOut size={20} weight="duotone" style={{ color: primary }} />
-            <div>
-              <div style={{ fontWeight: 700, fontSize: '0.9375rem' }}>Lihat Profil Publik</div>
-              <div style={{ fontSize: '0.75rem', color: textMut }}>testimonipro.site/brand/{business.slug}</div>
-            </div>
-          </Link>
-          <Link to="/settings" style={{
-            padding: '1.25rem', borderRadius: '1rem',
-            backgroundColor: bgElevated, border: `1px solid ${border}`,
-            textDecoration: 'none', color: text,
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
-          }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: primary }}>
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: '0.9375rem' }}>Edit Profil Bisnis</div>
-              <div style={{ fontSize: '0.75rem', color: textMut }}>Perbarui foto, lokasi, & informasi</div>
-            </div>
-          </Link>
-          <Link to={`/experience/${business.slug}`} style={{
-            padding: '1.25rem', borderRadius: '1rem',
-            backgroundColor: bgElevated, border: `1px solid ${border}`,
-            textDecoration: 'none', color: text,
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
-          }}>
-            <Gift size={20} weight="duotone" style={{ color: primary }} />
-            <div>
-              <div style={{ fontWeight: 700, fontSize: '0.9375rem' }}>Halaman Submit Testimoni</div>
-              <div style={{ fontSize: '0.75rem', color: textMut }}>Untuk disematkan atau dibagikan secara langsung</div>
-            </div>
-          </Link>
-        </section>
-
-        {/* Recent Testimonials */}
-        <section>
-          <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1rem', fontWeight: 700, color: text, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <ChatCircleText size={18} weight="duotone" style={{ color: primary }} />
-            Testimoni Terbaru ({testimonials.length})
-          </h3>
-
-          {testimonials.length === 0 ? (
-            <div style={{
-              padding: '2rem', textAlign: 'center',
-              borderRadius: '1rem', border: `1px dashed ${border}`,
-              backgroundColor: bg2,
-            }}>
-              <p style={{ color: textMut, marginBottom: '0.5rem' }}>Belum ada testimoni masuk.</p>
-              <p style={{ fontSize: '0.8125rem', color: textMut }}>Hasilkan token dan kirimkan kepada pelanggan Anda untuk mulai mengumpulkan ulasan.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {testimonials.slice(0, 10).map((t) => (
-                <div key={t.id} style={{
-                  padding: '1rem', borderRadius: '0.75rem',
-                  backgroundColor: bgElevated, border: `1px solid ${border}`,
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: text }}>{t.customer_name}</span>
-                    <span style={{ fontSize: '0.75rem', color: textMut }}>{new Date(t.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                  </div>
-                  <p style={{ fontSize: '0.875rem', color: textSec, lineHeight: 1.6 }}>"{t.content || t.review_text}"</p>
-
-                  {t.photo_urls && t.photo_urls.length > 0 && (
-                    <div style={{
-                      display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap',
-                    }}>
-                      {t.photo_urls.map((url, i) => (
-                        <img
-                          key={i}
-                          src={url}
-                          alt={`Foto ${i + 1}`}
-                          style={{
-                            width: '80px', height: '80px',
-                            objectFit: 'cover', borderRadius: '0.5rem',
-                            border: `1px solid ${border}`, cursor: 'pointer',
-                          }}
-                          onClick={() => window.open(url, '_blank')}
-                        />
+                  ))}
+                  {totalTokenPages > 1 && (
+                    <div className="dash-pagination">
+                      <button className="page-btn" onClick={() => setTokenPage(p => p - 1)} disabled={tokenPage === 1}><CaretLeft size={12} /></button>
+                      {Array.from({ length: totalTokenPages }, (_, i) => (
+                        <button key={i} className={`page-btn ${tokenPage === i + 1 ? 'active' : ''}`} onClick={() => setTokenPage(i + 1)}>{i + 1}</button>
                       ))}
+                      <button className="page-btn" onClick={() => setTokenPage(p => p + 1)} disabled={tokenPage === totalTokenPages}><CaretRight size={12} /></button>
                     </div>
                   )}
-                </div>
-              ))}
+                </>
+              )}
             </div>
-          )}
-        </section>
+          </div>
+
+          {/* --- TESTIMONI PANEL --- */}
+          <div className="dash-panel">
+            <div className="dash-panel-header">
+              <h3><ChatCircleText size={18} weight="duotone" style={{ color: 'var(--color-primary)' }} /> Testimoni Terbaru ({testimonials.length})</h3>
+            </div>
+            <div className="dash-panel-body">
+              {testimonials.length === 0 ? (
+                <div className="dash-empty">
+                  <div className="dash-empty-icon"><ChatCircleText size={24} weight="duotone" /></div>
+                  <p>Belum ada testimoni masuk. Hasilkan token dan kirimkan kepada pelanggan Anda untuk mulai mengumpulkan ulasan.</p>
+                </div>
+              ) : (
+                <>
+                  {paginatedTesti.map((t) => (
+                    <div key={t.id} className="testi-card">
+                      <div className="testi-header">
+                        <div className="testi-avatar">{getInitials(t.customer_name)}</div>
+                        <div className="testi-info">
+                          <div className="testi-name">{t.customer_name}</div>
+                          <div className="testi-date">{timeAgo(t.created_at)}</div>
+                        </div>
+                      </div>
+                      <div className="testi-stars">{renderStars(t.rating)}</div>
+                      <p className="testi-content">"{t.content || t.review_text}"</p>
+                      {t.photo_urls && t.photo_urls.length > 0 && (
+                        <div className="testi-photos">
+                          {t.photo_urls.map((url, i) => (
+                            <img key={i} src={url} alt={`Foto ${i + 1}`} className="testi-photo" onClick={() => window.open(url, '_blank')} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {totalTestiPages > 1 && (
+                    <div className="dash-pagination">
+                      <button className="page-btn" onClick={() => setTestiPage(p => p - 1)} disabled={testiPage === 1}><CaretLeft size={12} /></button>
+                      {Array.from({ length: totalTestiPages }, (_, i) => (
+                        <button key={i} className={`page-btn ${testiPage === i + 1 ? 'active' : ''}`} onClick={() => setTestiPage(i + 1)}>{i + 1}</button>
+                      ))}
+                      <button className="page-btn" onClick={() => setTestiPage(p => p + 1)} disabled={testiPage === totalTestiPages}><CaretRight size={12} /></button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ====== API KEYS PANEL (Full-width) ====== */}
+        <div className="dash-panel full-width" style={{ marginBottom: '2rem' }}>
+          <div className="dash-panel-header">
+            <h3>
+              <Key size={18} weight="duotone" style={{ color: 'var(--color-primary)' }} /> Developer API
+              <span style={{ fontSize: '0.625rem', backgroundColor: '#fbbf24', color: '#fff', padding: '0.125rem 0.5rem', borderRadius: '4px', marginLeft: '0.5rem', fontWeight: 700 }}>PRO</span>
+            </h3>
+            <button onClick={handleGenerateApiKey} className="copy-btn" style={{ fontWeight: 700 }}>
+              <Plus size={12} weight="bold" /> Buat API Key
+            </button>
+          </div>
+          <div className="dash-panel-body">
+            <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', marginBottom: '1rem' }}>
+              Gunakan API Key untuk mengintegrasikan TestimoniPro ke website atau aplikasi Anda sendiri.
+            </p>
+            {apiKeys.length > 0 ? (
+              apiKeys.map((key) => (
+                <div key={key.id} className="token-row">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span className="token-code">{key.api_key_hash.substring(0, 8)}...****</span>
+                    <span className="token-meta">Dibuat {timeAgo(key.created_at)}</span>
+                  </div>
+                  <span className="token-badge terpakai">Aktif</span>
+                </div>
+              ))
+            ) : (
+              <div className="dash-empty" style={{ padding: '1.5rem' }}>
+                <p>Belum ada API Key. Buat API Key untuk mulai mengintegrasikan testimoni ke website Anda.</p>
+              </div>
+            )}
+          </div>
+        </div>
       </main>
     </div>
   );
